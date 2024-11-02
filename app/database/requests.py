@@ -24,7 +24,7 @@ async def get_name_user_dict_by_id(user_dict_id):
 #Получение названия словаря по его id его категории
 async def get_name_user_dict_by_id_category(category_id):
     async with async_session() as session:
-        user_dict_id = await get_id_user_dict_by_id_category(category_id)
+        user_dict_id = (await get_id_user_dict_by_id_category(category_id)).first()
         return await get_name_user_dict_by_id(user_dict_id)
 
 #Получение названия словаря и соответствия по его id 
@@ -212,6 +212,21 @@ async def add_new_word(category_id, name, matching):
                  level_difficulty=0
                  )
             )
+        await session.commit()
+
+#Запись нового слова
+async def add_new_words(category_id, words_data):
+    items = [
+            Item(
+                name=name, 
+                matching=matching, 
+                category_id=category_id,
+                level_difficulty=0
+            )
+            for name, matching in words_data
+        ]
+    async with async_session() as session:
+        session.add_all(items)
         await session.commit()
 
 #получение id слова по имени

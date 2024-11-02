@@ -57,7 +57,7 @@ async def inline_categories(user_dict_id):
 async def inline_edit_category( category_id ):
     keyboard = InlineKeyboardBuilder()
     keyboard.add(InlineKeyboardButton(text='Новое слово', callback_data=f'add new word_{category_id}'))
-    keyboard.add(InlineKeyboardButton(text='Новые слова', callback_data=f'add new words_{category_id}'))
+    keyboard.add(InlineKeyboardButton(text='Новые слова', callback_data=f'add words_{category_id}'))
     keyboard.add(InlineKeyboardButton(text='Удалить слово', callback_data=f'del word_{category_id}'))
     keyboard.add(InlineKeyboardButton(text='Удалить категорию', callback_data=f'del cat_{category_id}'))
     return keyboard.adjust(2).as_markup()

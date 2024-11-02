@@ -1,8 +1,11 @@
 from aiogram import Router, F
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
+from io import StringIO, BytesIO
+from openpyxl import load_workbook
+import csv
 
 from random import shuffle
 
@@ -22,7 +25,6 @@ class RegistationNewCat(StatesGroup):
     name = State()
 
 class RegistationNewItem(StatesGroup):
-    user_dict_id = ''
     category_id = ''
     name = State()
     matching = State()
@@ -38,6 +40,11 @@ class LearnWords(StatesGroup):
     order_difficult_words = []
     last_word = {}
     name = State()
+
+class RegistationNewWords(StatesGroup):
+    category_id = ''
+    file = State()
+
 #endregion
 
 
@@ -406,18 +413,147 @@ async def set_matching_word(message: Message, state: FSMContext):
     await message.answer('Слово добавлено!')
 
     category = (await rq.get_name_category_by_id( data['category_id'] )).first()
+    user_dict_id = (await rq.get_id_user_dict_by_id_category(data['category_id'])).first()
     items = [item for item in await rq.get_words_by_category(data['category_id'])]
 
     await message.answer(f"Категория <b>{category}</b>\n\n{(
         '\n'.join(item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
         if items else 'Здесь пока пусто'    )}",
                 reply_markup=await kb.inline_words( 
-                    data['category_id'], data['user_dict_id'], bool(items)
+                    data['category_id'], user_dict_id, bool(items)
                 ),
                 parse_mode='html'
         )
 
 #-----------------------------------------------------------------------------------
+#endregion
+
+
+
+#ДОБАВЛЕНИЕ НОВЫХ СЛОВ В КАТЕГОРИЮ
+#region
+@router.callback_query(F.data.startswith('add words'))
+async def add_new_words(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(RegistationNewWords.file)
+    await state.update_data(category_id=callback.data.split('_')[1])
+
+    await callback.message.answer(
+        'Отправьте файл формата .txt. Каждая строка должна быть шаблона: "<i>слово</i> - <i>соответветствие</i>"', 
+                                  parse_mode='html')
+
+
+
+@router.message(RegistationNewWords.file)
+async def set_new_words(message: Message, state: FSMContext):
+    document = message.document
+
+    if not document or not (
+        document.mime_type.startswith('text/') or 
+        document.mime_type in ['application/vnd.ms-excel', 'text/csv', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+    ):
+        await message.answer("Пожалуйста, отправьте текстовый, CSV или XLSX документ")
+        return
+
+    data = await state.get_data()
+    await state.clear()
+
+    file = await message.bot.get_file(document.file_id)
+    downloaded_file = await message.bot.download_file(file.file_path)
+
+    try:
+        if document.mime_type in ['application/vnd.ms-excel', 'text/csv']:
+            content = downloaded_file.read().decode('utf-8')
+            string_io = StringIO(content)
+            csv_reader = csv.reader(string_io)
+            
+            words_data = [
+                (name, matching)
+                for name, matching 
+                in csv_reader
+            ]
+
+        elif document.mime_type.startswith('text/'):
+            content = downloaded_file.read().decode('utf-8')
+            string_io = StringIO(content)
+            
+            words_data = [
+                (name, matching) 
+                for name, matching 
+                in map( 
+                    lambda line: line.rstrip().split(' - '), string_io
+                 )
+            ]
+
+        elif document.mime_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+            excel_io = BytesIO(downloaded_file.read())
+            workbook = load_workbook(excel_io, data_only=True)
+            sheet = workbook.active
+
+            words_data = [
+                (name, matching) 
+                for name, matching 
+                in sheet.iter_rows(values_only=True)
+            ]
+        
+        await rq.add_new_words(data['category_id'], words_data)
+        await message.answer('Слова добавлены!')
+
+    except:
+        await message.answer(f"Произошла ошибка при обработке файла")
+        return
+
+    category = (await rq.get_name_category_by_id(data['category_id'])).first()
+    user_dict_id = (await rq.get_id_user_dict_by_id_category(data['category_id'])).first()
+    items = [item for item in await rq.get_words_by_category(data['category_id'])]
+
+    await message.answer(f"Категория <b>{category}</b>\n\n{(
+        '\n'.join(item.name + '  -  ' + '<i>' + item.matching + '</i>' for item in items)
+        if items else 'Здесь пока пусто'
+    )}",
+        reply_markup=await kb.inline_words(
+            data['category_id'], user_dict_id, bool(items)
+        ),
+        parse_mode='html'
+    )
+
+
+@router.message(RegistationNewWords.file)
+async def set_new_words(message: Message, state: FSMContext):
+    document = message.document
+
+    if not document or not document.mime_type.startswith('text/'):
+        await message.answer("Пожалуйста, отправьте текстовый документ.")
+        return
+
+    data = await state.get_data()
+    await state.clear()
+
+    file = await message.bot.get_file(document.file_id)
+    file_path = file.file_path
+    downloaded_file = await message.bot.download_file(file_path)
+
+    content = downloaded_file.read().decode('utf-8')
+    string_io = StringIO(content)
+    try:
+        await rq.add_new_words(message, data['category_id'], string_io)
+        await message.answer('Слова добавлены!')
+    except:
+        await message.answer('Некорректные данные(')
+
+    category = (await rq.get_name_category_by_id(data['category_id'])).first()
+    user_dict_id = (await rq.get_id_user_dict_by_id_category(data['category_id'])).first()
+    items = [item for item in await rq.get_words_by_category(data['category_id'])]
+
+    await message.answer(f"Категория <b>{category}</b>\n\n{(
+        '\n'.join(item.name + '  -  ' + '<i>' + item.matching + '</i>' for item in items)
+        if items else 'Здесь пока пусто'
+    )}",
+        reply_markup=await kb.inline_words(
+            data['category_id'], user_dict_id, bool(items)
+        ),
+        parse_mode='html'
+    )
+
 #endregion
 
 
