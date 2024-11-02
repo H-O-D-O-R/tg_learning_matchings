@@ -223,10 +223,9 @@ async def display_words(callback: CallbackQuery):
                 '\n'.join(item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
                 if items else 'Здесь пока пусто'
                 	            )}",
-        reply_markup=await kb.inline_words( category_id, user_dict_id, bool(items) ),
+        reply_markup=await kb.inline_words( category_id, user_dict_id, is_not_empty=bool(items) ),
         parse_mode='html'        
         )
-
 
 #Убрать слово/соответствие в категории
 @router.callback_query(F.data.startswith('discard'))
@@ -234,6 +233,8 @@ async def display_edit_words_discard(callback: CallbackQuery):
 
     category_id = callback.data.split('_')[1]
     less = callback.data.split('_')[2]
+    less_common_words = int(callback.data.split('_')[3])
+
     user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
 
     category = (await rq.get_name_category_by_id( callback.data.split('_')[1] )).first()
@@ -249,7 +250,7 @@ async def display_edit_words_discard(callback: CallbackQuery):
             text=f"Категория <b>{category}</b>\n\n{(
                 '\n'.join(items) if items else 'Здесь пока пусто'
                 )}",
-            reply_markup=await kb.inline_words(category_id, user_dict_id, bool(items), less),
+            reply_markup=await kb.inline_words(category_id, user_dict_id, is_not_empty=bool(items), less_name_or_matching=less, less_common_words=less_common_words),
             parse_mode='html'
         )
 
@@ -259,6 +260,8 @@ async def display_edit_words_return(callback: CallbackQuery):
 
     category_id = callback.data.split('_')[1]
     less = callback.data.split('_')[2]
+    less_common_words = int(callback.data.split('_')[3])
+
     user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
 
     category = (await rq.get_name_category_by_id( callback.data.split('_')[1] )).first()
@@ -278,10 +281,29 @@ async def display_edit_words_return(callback: CallbackQuery):
         text=f"Категория <b>{category}</b>\n\n{(
                 '\n'.join(items) if items else 'Здесь пока пусто'
                 	            )}",
-        reply_markup=await kb.inline_words( category_id, user_dict_id, bool(items) ),
+        reply_markup=await kb.inline_words( category_id, user_dict_id, is_not_empty=bool(items), less_common_words=less_common_words ),
         parse_mode='html'
         )
 
+#Убрать простые слова в категории
+@router.callback_query(F.data.startswith('common_discard'))
+async def display_edit_words_discard_common_words(callback: CallbackQuery):
+    category_id = callback.data.split('_')[2]
+    #less = callback.data.split('_')[2]
+    
+    user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
+    category = (await rq.get_name_category_by_id( category_id )).first()
+
+    items = [item for item in await rq.get_difficult_words_by_categories_id( [category_id] )]
+
+    await callback.message.edit_text(
+        f"Категория <b>{category}</b>\n\n{(
+                '\n'.join( item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
+                if items else 'Здесь пока пусто'
+                	            )}",
+        reply_markup=await kb.inline_words( category_id, user_dict_id, is_not_empty=bool(items), less_common_words=True ),
+        parse_mode='html'
+        )
 
 #-----------------------------------------------------------------------------------
 #endregion

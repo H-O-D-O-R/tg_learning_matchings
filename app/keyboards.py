@@ -75,7 +75,7 @@ async def inline_confirm_del_category(category_id):
 
 #СЛОВА
 
-async def inline_words(category_id, user_dict_id, is_not_empty=False, less=None):
+async def inline_words(category_id, user_dict_id, is_not_empty=False, less_name_or_matching=None, less_common_words=0):
 
     buttons = [
             [InlineKeyboardButton(text='Редактировать категорию', callback_data=f'edit cat_{category_id}')],
@@ -88,16 +88,20 @@ async def inline_words(category_id, user_dict_id, is_not_empty=False, less=None)
         buttons = [[InlineKeyboardButton(text='Учить слова', callback_data=f'learn all_cat_{category_id}'), 
             InlineKeyboardButton(text='Учить сложные слова', callback_data=f'learn diff_cat_{category_id}')]] + buttons
         
-        if less is None:
-            buttons = [[
-                InlineKeyboardButton(text=f'Убрать {name}', callback_data=f'discard_{category_id}_name'),
-                InlineKeyboardButton(text=f'Убрать {matching}', callback_data=f'discard_{category_id}_matching')
-            ]] + buttons
+        if less_name_or_matching is None:
+            buttons = [
+                [InlineKeyboardButton(text=f'Убрать {name}', callback_data=f'discard_{category_id}_name_{"1" if less_common_words else "0"}'),
+                InlineKeyboardButton(text=f'Убрать {matching}', callback_data=f'discard_{category_id}_matching_{"1" if less_common_words else "0"}')],
+                [InlineKeyboardButton(text=f'{"Вернуть" if less_common_words else "Убрать"} простые слова', 
+                                     callback_data=( f'cat_{category_id}' if less_common_words else f'common_discard_{category_id}' ))]
+            ] + buttons
         else:
-            name_less = ( name if less == 'name' else matching )
-            buttons = [[
-                InlineKeyboardButton(text=f'Вернуть {name_less}', callback_data=f'return_{category_id}_{less}')
-            ]] + buttons
+            name_less = ( name if less_name_or_matching == 'name' else matching )
+            buttons = [
+                [InlineKeyboardButton(text=f'Вернуть {name_less}', callback_data=f'return_{category_id}_{less_name_or_matching}_{"1" if less_common_words else "0"}')],
+                [InlineKeyboardButton(text=f'{"Вернуть" if less_common_words else "Убрать"} простые слова', 
+                                     callback_data=( f'cat_{category_id}' if less_common_words else f'common_discard_{category_id}' ) )]
+            ] + buttons
 
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
