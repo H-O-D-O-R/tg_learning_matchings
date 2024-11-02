@@ -629,9 +629,21 @@ async def del_word(callback: CallbackQuery, state: FSMContext):
 async def get_name_word_for_delete(message: Message, state: FSMContext):
     name_word = message.text
     data = await state.get_data()
-    category_id = data['category_id']
-    word_id = (await rq.get_id_word_by_name(name_word, category_id)).first()
     await state.clear()
+    category_id = data['category_id']
+
+    if (await rq.check_word_in_category(name_word, category_id)).first() is None:
+        name_category = (await rq.get_name_category_by_id(category_id)).first()
+
+        await message.answer(f'Слово {name_word} отсутствует в категории {name_category}')
+        await message.answer(f'Категория <b>{name_category}</b>', 
+                                  reply_markup= await kb.inline_edit_category(category_id),
+                                  parse_mode='html'
+                                  )
+    
+        return
+
+    word_id = (await rq.get_id_word_by_name(name_word, category_id)).first()
     await message.answer(f'Вы точно хотите удалить слово {name_word}?', 
                                   reply_markup= await kb.inline_confirm_del_word(word_id, category_id))
 

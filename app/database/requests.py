@@ -298,3 +298,14 @@ async def get_name_by_matching_and_category_id(matching, category_id):
                         (Item.category_id == category_id)
                     )
             )
+
+#проверка наличия слова в категории
+async def check_word_in_category(name_word, category_id):
+    async with async_session() as session:
+        return await session.scalars(
+            select(Item.id)
+            .where(
+                (Item.name == name_word) &
+                        (Item.category_id == category_id) 
+            )
+        )
