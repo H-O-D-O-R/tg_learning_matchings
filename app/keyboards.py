@@ -113,9 +113,19 @@ async def inline_confirm_del_word(word_id, category_id):
 async def reply_learn_word():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text='/Закончить')]
+            [KeyboardButton(text='ЗАКОНЧИТЬ')]
         ],
-        resize_keyboard=True,       # Уменьшает размер кнопки
-        one_time_keyboard=True      # Кнопка исчезает после использования
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+    return keyboard
+
+async def reply_cancel_add_new_item():
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text='ОТМЕНА')]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
     )
     return keyboard

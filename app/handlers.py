@@ -53,8 +53,8 @@ async def cmd_start(message: Message):
     await message.answer('Выбери словарь:', reply_markup= await kb.inline_dictionaries())
 
 @router.callback_query(F.data == 'main')
-async def cmd_start(callback: CallbackQuery):
-    await callback.message.answer('Выбери словарь:', reply_markup= await kb.inline_dictionaries())
+async def cmd_start_for_callback(callback: CallbackQuery):
+    await cmd_start(callback.message)
 
 
 
@@ -78,18 +78,26 @@ async def cmd_start(callback: CallbackQuery):
 @router.callback_query(F.data == 'add new dict')
 async def add_new_dict(callback: CallbackQuery, state: FSMContext):
     await state.set_state(RegistationNewDict.name)
-    await callback.message.answer('Введите название')
+    await callback.message.answer('Введите название', reply_markup= await kb.reply_cancel_add_new_item())
 
 #Получение названия словаря
 @router.message(RegistationNewDict.name)
 async def set_name_dict(message: Message, state: FSMContext):
+    if message.text == 'ОТМЕНА':
+        await cmd_start(message)
+        return
+    
     await state.set_state(RegistationNewDict.matching)
     await state.update_data(name=message.text)
-    await message.answer('Введите соответствие')
+    await message.answer('Введите соответствие', reply_markup= await kb.reply_cancel_add_new_item())
 
 #Получение соответствия словаря
 @router.message(RegistationNewDict.matching)
 async def set_name_dict(message: Message, state: FSMContext):
+    if message.text == 'ОТМЕНА':
+        await cmd_start(message)
+        return
+    
     await state.update_data(matching=message.text)
     data = await state.get_data()
     await state.clear()
@@ -291,11 +299,23 @@ async def display_edit_words_return(callback: CallbackQuery):
 async def add_new_category(callback: CallbackQuery, state: FSMContext):
     await state.set_state(RegistationNewCat.name)
     await state.update_data(user_dict_id= callback.data.split('_')[1])
-    await callback.message.answer('Введите название')
+    await callback.message.answer('Введите название', reply_markup= await kb.reply_cancel_add_new_item())
 
 #Получение названия категории
 @router.message(RegistationNewCat.name)
 async def set_name_category(message: Message, state: FSMContext):
+    if message.text == 'ОТМЕНА':
+        data = await state.get_data()
+        await state.clear()
+
+        user_dict_id = data['user_dict_id']
+        name_user_dict =  (await rq.get_name_user_dict_by_id(user_dict_id)).first()
+
+        await message.answer(f'Словарь <b>{name_user_dict}</b>', 
+                                  reply_markup=await kb.inline_categories( user_dict_id ), 
+                                  parse_mode='html')
+
+        return 
     await state.update_data(name=message.text)
     data = await state.get_data()
     await state.clear()
@@ -393,18 +413,58 @@ async def add_new_word(callback: CallbackQuery, state: FSMContext):
                             (await rq.get_id_user_dict_by_id_category( 
                                 callback.data.split('_')[1])).first() )
     await callback.answer('Добавить новое слово')
-    await callback.message.answer('Введите слово')
+    await callback.message.answer('Введите слово', reply_markup= await kb.reply_cancel_add_new_item())
 
 #Получение слова
 @router.message(RegistationNewItem.name)
 async def set_name_word(message: Message, state: FSMContext):
+    if message.text == 'ОТМЕНА':
+        data = await state.get_data()
+        await state.clear()
+
+        category_id = data['category_id']
+        category = (await rq.get_name_category_by_id(category_id)).first()
+        user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
+        items = [item for item in await rq.get_words_by_category(category_id)]
+
+        await message.answer(f"Категория <b>{category}</b>\n\n{(
+            '\n'.join(item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
+            if items else 'Здесь пока пусто'    )}",
+                    reply_markup=await kb.inline_words(
+                        category_id, user_dict_id, bool(items)
+                    ),
+                    parse_mode='html'
+        )
+
+        return 
+    
     await state.update_data(name=message.text)
     await state.set_state(RegistationNewItem.matching)
-    await message.answer('Введите перевод')
+    await message.answer('Введите перевод', reply_markup= await kb.reply_cancel_add_new_item())
 
 #Получение соответствия (перевод)
 @router.message(RegistationNewItem.matching)
 async def set_matching_word(message: Message, state: FSMContext):
+    if message.text == 'ОТМЕНА':
+        data = await state.get_data()
+        await state.clear()
+
+        category_id = data['category_id']
+        category = (await rq.get_name_category_by_id(category_id)).first()
+        user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
+        items = [item for item in await rq.get_words_by_category(category_id)]
+
+        await message.answer(f"Категория <b>{category}</b>\n\n{(
+        '\n'.join(item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
+        if items else 'Здесь пока пусто'    )}",
+                reply_markup=await kb.inline_words( 
+                    category_id, user_dict_id, bool(items)
+                ),
+                parse_mode='html'
+        )
+
+        return 
+    
     await state.update_data(matching=message.text)
     data = await state.get_data()
     await state.clear()
@@ -432,6 +492,12 @@ async def set_matching_word(message: Message, state: FSMContext):
 
 #ДОБАВЛЕНИЕ НОВЫХ СЛОВ В КАТЕГОРИЮ
 #region
+#-----------------------------------------------------------------------------------
+#                /start/{название словаря}/{название категории}
+#                /редактировать категорию/добавить новые слова
+#-----------------------------------------------------------------------------------
+
+
 @router.callback_query(F.data.startswith('add words'))
 async def add_new_words(callback: CallbackQuery, state: FSMContext):
     await state.set_state(RegistationNewWords.file)
@@ -439,12 +505,34 @@ async def add_new_words(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.answer(
         'Отправьте файл формата .txt. Каждая строка должна быть шаблона: "<i>слово</i> - <i>соответветствие</i>"', 
-                                  parse_mode='html')
+                                  parse_mode='html', 
+                                  reply_markup= await kb.reply_cancel_add_new_item()
+                                  )
 
 
 
 @router.message(RegistationNewWords.file)
 async def set_new_words(message: Message, state: FSMContext):
+    if message.text == 'ОТМЕНА':
+        data = await state.get_data()
+        await state.clear()
+
+        category_id = data['category_id']
+        category = (await rq.get_name_category_by_id(category_id)).first()
+        user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
+        items = [item for item in await rq.get_words_by_category(category_id)]
+
+        await message.answer(f"Категория <b>{category}</b>\n\n{(
+        '\n'.join(item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
+        if items else 'Здесь пока пусто'    )}",
+                reply_markup=await kb.inline_words( 
+                    category_id, user_dict_id, bool(items)
+                ),
+                parse_mode='html'
+        )
+
+        return 
+    
     document = message.document
 
     if not document or not (
@@ -516,43 +604,6 @@ async def set_new_words(message: Message, state: FSMContext):
         parse_mode='html'
     )
 
-
-@router.message(RegistationNewWords.file)
-async def set_new_words(message: Message, state: FSMContext):
-    document = message.document
-
-    if not document or not document.mime_type.startswith('text/'):
-        await message.answer("Пожалуйста, отправьте текстовый документ.")
-        return
-
-    data = await state.get_data()
-    await state.clear()
-
-    file = await message.bot.get_file(document.file_id)
-    file_path = file.file_path
-    downloaded_file = await message.bot.download_file(file_path)
-
-    content = downloaded_file.read().decode('utf-8')
-    string_io = StringIO(content)
-    try:
-        await rq.add_new_words(message, data['category_id'], string_io)
-        await message.answer('Слова добавлены!')
-    except:
-        await message.answer('Некорректные данные(')
-
-    category = (await rq.get_name_category_by_id(data['category_id'])).first()
-    user_dict_id = (await rq.get_id_user_dict_by_id_category(data['category_id'])).first()
-    items = [item for item in await rq.get_words_by_category(data['category_id'])]
-
-    await message.answer(f"Категория <b>{category}</b>\n\n{(
-        '\n'.join(item.name + '  -  ' + '<i>' + item.matching + '</i>' for item in items)
-        if items else 'Здесь пока пусто'
-    )}",
-        reply_markup=await kb.inline_words(
-            data['category_id'], user_dict_id, bool(items)
-        ),
-        parse_mode='html'
-    )
 
 #endregion
 
