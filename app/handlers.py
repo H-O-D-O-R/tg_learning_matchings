@@ -418,11 +418,12 @@ async def add_new_word(callback: CallbackQuery, state: FSMContext):
 #Получение слова
 @router.message(RegistationNewItem.name)
 async def set_name_word(message: Message, state: FSMContext):
+    data = await state.get_data()
+    category_id = data['category_id']
+
     if message.text == 'ОТМЕНА':
-        data = await state.get_data()
         await state.clear()
 
-        category_id = data['category_id']
         category = (await rq.get_name_category_by_id(category_id)).first()
         user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
         items = [item for item in await rq.get_words_by_category(category_id)]
@@ -437,6 +438,18 @@ async def set_name_word(message: Message, state: FSMContext):
         )
 
         return 
+    
+    if (await rq.check_word_in_category(message.text, category_id)).first() is not None:
+        await state.clear()
+
+        name_category = (await rq.get_name_category_by_id(category_id)).first()
+        await message.answer(f'Слово {message.text} уже есть в категории {name_category}')
+
+        await message.answer(f'Категория <b>{name_category}</b>', 
+                                  reply_markup= await kb.inline_edit_category(category_id),
+                                  parse_mode='html'
+                                  )
+        return
     
     await state.update_data(name=message.text)
     await state.set_state(RegistationNewItem.matching)
@@ -583,8 +596,8 @@ async def set_new_words(message: Message, state: FSMContext):
                 in sheet.iter_rows(values_only=True)
             ]
         
-        await rq.add_new_words(data['category_id'], words_data)
-        await message.answer('Слова добавлены!')
+        extra_words = await rq.add_new_words(data['category_id'], words_data)
+        await message.answer('Слова добавлены!' + extra_words)
 
     except:
         await message.answer(f"Произошла ошибка при обработке файла")
@@ -789,7 +802,7 @@ async def get_name(message: Message, state: FSMContext):
     categories_id = data['categories_id']
     words = data['words']
     
-    if message.text != '/Закончить':
+    if message.text != 'ЗАКОНЧИТЬ':
         is_correct_answer = (message.text.lower() == word['name'].lower())
         if not is_correct_answer:
             await message.answer( f"{word['name']}  -  {word['matching']}")

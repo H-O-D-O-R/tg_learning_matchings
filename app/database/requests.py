@@ -148,6 +148,14 @@ async def get_words_by_category(category_id):
             .where(Item.category_id == category_id)
             )
 
+#Получние слов категории без соответствий
+async def get_words_by_category_without_matching(category_id):
+    async with async_session() as session:
+        return await session.scalars(
+            select(Item.name)
+            .where(Item.category_id == category_id)
+            )
+
 #Получние обычных слов категорий
 async def get_common_words_by_categories_id(categories_id):
     async with async_session() as session:
@@ -159,7 +167,7 @@ async def get_common_words_by_categories_id(categories_id):
                                     )
         )
 
-#Получние слов категорий
+#Получние сложных слов категорий
 async def get_difficult_words_by_categories_id(categories_id):
     async with async_session() as session:
         return await session.scalars(
@@ -214,20 +222,30 @@ async def add_new_word(category_id, name, matching):
             )
         await session.commit()
 
-#Запись нового слова
+#Запись новых слов
 async def add_new_words(category_id, words_data):
-    items = [
-            Item(
-                name=name, 
-                matching=matching, 
-                category_id=category_id,
-                level_difficulty=0
+    names = { name for name in await get_words_by_category_without_matching(category_id) }
+    items = []
+
+    extra_words = ''
+    for  name, matching in words_data:
+        if name not in names:
+            items.append(
+                Item(
+                    name=name,
+                    matching=matching,
+                    category_id=category_id,
+                    level_difficulty=0
+                )
             )
-            for name, matching in words_data
-        ]
+            names.add(name)
+        else:
+            extra_words = '\nДобавлены только уникальные слова'
+
     async with async_session() as session:
         session.add_all(items)
         await session.commit()
+    return extra_words
 
 #получение id слова по имени
 async def get_id_word_by_name(name_word, category_id):
