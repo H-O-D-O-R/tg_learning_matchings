@@ -3,6 +3,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
+import asyncio
 from io import StringIO, BytesIO
 from openpyxl import load_workbook
 import csv
@@ -24,6 +25,14 @@ class RegistationNewCat(StatesGroup):
     user_dict_id = ''
     name = State()
 
+class WordsPages(StatesGroup):
+    check = State()
+    current_page = 0
+    pages = []
+    less_name = False
+    less_matching = False
+    less_common_words = False
+
 class RegistationNewItem(StatesGroup):
     category_id = ''
     name = State()
@@ -36,10 +45,12 @@ class ConfirmDelWord(StatesGroup):
 
 class LearnWords(StatesGroup):
     categories_id = []
+    user_dict_id = 0
     words = []
     order_difficult_words = []
     last_word = {}
     name = State()
+    id_message_for_delete = 0
 
 class RegistationNewWords(StatesGroup):
     category_id = ''
@@ -49,12 +60,15 @@ class RegistationNewWords(StatesGroup):
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message):
-    await message.answer('Выбери словарь:', reply_markup= await kb.inline_dictionaries())
+async def cmd_start(data: Message | CallbackQuery):
+    if isinstance(data, Message):
+        await data.answer('Выбери словарь:', reply_markup= await kb.inline_dictionaries())
+    else:
+        await data.message.edit_text('Выбери словарь:', reply_markup= await kb.inline_dictionaries())
 
 @router.callback_query(F.data == 'main')
 async def cmd_start_for_callback(callback: CallbackQuery):
-    await cmd_start(callback.message)
+    await cmd_start(callback)
 
 
 
@@ -77,8 +91,15 @@ async def cmd_start_for_callback(callback: CallbackQuery):
 
 @router.callback_query(F.data == 'add new dict')
 async def add_new_dict(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+
+    state_name = await state.get_state()
+    if state_name is not None:
+        await state.clear()
+    
     await state.set_state(RegistationNewDict.name)
-    await callback.message.answer('Введите название', reply_markup= await kb.reply_cancel_add_new_item())
+    await callback.message.answer('Введите название нового словаря',
+                          reply_markup= await kb.reply_cancel_add_new_item())
 
 #Получение названия словаря
 @router.message(RegistationNewDict.name)
@@ -106,7 +127,7 @@ async def set_name_dict(message: Message, state: FSMContext):
     matching_user_dict = data['matching']
 
     await rq.add_new_user_dict(name_user_dict, matching_user_dict)
-    await message.answer('Словарь <b>{name_user_dict}</b> создан!'.format(name_user_dict=name_user_dict), 
+    await message.answer(f'Словарь <b>{name_user_dict}</b> создан!', 
                          parse_mode="html")
 
     user_dict_id = (await rq.get_id_user_dict_by_name(name_user_dict)).first()
@@ -127,10 +148,15 @@ async def set_name_dict(message: Message, state: FSMContext):
 
 
 @router.callback_query(F.data.startswith('dict'))
-async def displlay_user_dicts(callback: CallbackQuery):
+async def displlay_user_dicts(callback: CallbackQuery, state: FSMContext):
+
+    name_state = await state.get_state()
+    if name_state != None:
+        await state.clear()
+    
     user_dict_id = callback.data.split('_')[1]
     name_user_dict =  (await rq.get_name_user_dict_by_id(user_dict_id)).first()
-    await callback.message.answer(f'Словарь <b>{name_user_dict}</b>', 
+    await callback.message.edit_text(f'Словарь <b>{name_user_dict}</b>', 
                                   reply_markup=await kb.inline_categories( user_dict_id ), 
                                   parse_mode='html')
 
@@ -151,7 +177,7 @@ async def edit_user_dict(callback: CallbackQuery):
     user_dict_id = callback.data.split('_')[1]
     name_user_dict = (await rq.get_name_user_dict_by_id(user_dict_id)).first()
 
-    await callback.message.answer(f'Словарь <b>{name_user_dict}</b>', 
+    await callback.message.edit_text(f'Словарь <b>{name_user_dict}</b>', 
                                   reply_markup=await kb.inline_edit_user_dict( user_dict_id ), 
                                   parse_mode='html')
 
@@ -170,7 +196,7 @@ async def edit_user_dict(callback: CallbackQuery):
 @router.callback_query(F.data.startswith('del dict'))
 async def del_user_dict(callback: CallbackQuery):
     name_user_dict = (await rq.get_name_user_dict_by_id(callback.data.split('_')[1])).first()
-    await callback.message.answer(f'Вы точно хотите удалить словарь {name_user_dict}?', 
+    await callback.message.edit_text(f'Вы точно хотите удалить словарь {name_user_dict}?', 
                                   reply_markup= await kb.inline_confirm_del_user_dict(callback.data.split('_')[1]))
 
 #Получение подтверждения
@@ -179,9 +205,10 @@ async def confirm_del_user_dict(callback: CallbackQuery):
     user_dict_id = callback.data.split('_')[1]
     name_user_dict = (await rq.get_name_user_dict_by_id(user_dict_id)).first()
     await rq.delete_dict(user_dict_id)
-    await callback.message.answer(f"Словарь <b>{name_user_dict}</b> удалён", parse_mode='html')
-    await callback.message.answer('Выбери словарь:', 
-                                  reply_markup= await kb.inline_dictionaries())
+    await callback.message.edit_text(f"Словарь <b>{name_user_dict}</b> удалён", 
+                                     parse_mode='html')
+    await callback.message.answer('Выбери словарь:',
+                                     reply_markup= await kb.inline_dictionaries())
 
 #-----------------------------------------------------------------------------------
 #endregion
@@ -207,103 +234,271 @@ async def confirm_del_user_dict(callback: CallbackQuery):
 #                  /start/{название словаря}/{название категории}
 #-----------------------------------------------------------------------------------
 
-
-@router.callback_query(F.data.startswith('cat'))
-async def display_words(callback: CallbackQuery):
-
-    category_id = callback.data.split('_')[1]
-    user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
-
-    category = (await rq.get_name_category_by_id( callback.data.split('_')[1] )).first()
-
-    items = [item for item in await rq.get_words_by_category(category_id)]
-    shuffle(items)
-    await callback.message.answer(
-        f"Категория <b>{category}</b>\n\n{(
-                '\n'.join(item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
-                if items else 'Здесь пока пусто'
-                	            )}",
-        reply_markup=await kb.inline_words( category_id, user_dict_id, is_not_empty=bool(items) ),
-        parse_mode='html'        
-        )
-
-#Убрать слово/соответствие в категории
-@router.callback_query(F.data.startswith('discard'))
-async def display_edit_words_discard(callback: CallbackQuery):
-
-    category_id = callback.data.split('_')[1]
-    less = callback.data.split('_')[2]
-    less_common_words = int(callback.data.split('_')[3])
-
-    user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
-
-    category = (await rq.get_name_category_by_id( callback.data.split('_')[1] )).first()
-
+#создание основы для вывода слов категории
+async def base_for_display_words(category_id, state):
     items = [
-        ('<i>' if less == 'name' else '') +
-        item.split('  -  ')[ less == 'name' ] 
-        + ('</i>' if less == 'name' else '')
-        for item in callback.message.text.split('\n')[2:]
-        ]
+        (item.name, item.matching) 
+        for item in await rq.get_words_by_category(category_id)
+    ]
+    
+    shuffle(items)
+    
+    pages = []
+    len_items = len(items)
+    for num in range((len_items + 14) // 15):
+        pages.append(items[num * 15: (num + 1) * 15])
 
-    await callback.message.edit_text(
-            text=f"Категория <b>{category}</b>\n\n{(
-                '\n'.join(items) if items else 'Здесь пока пусто'
-                )}",
-            reply_markup=await kb.inline_words(category_id, user_dict_id, is_not_empty=bool(items), less_name_or_matching=less, less_common_words=less_common_words),
-            parse_mode='html'
-        )
+    await state.set_state(WordsPages.check)
+    await state.update_data(pages=pages)
+    await state.update_data(current_page=0)
+    await state.update_data(less_name=False)
+    await state.update_data(less_matching=False)
+    await state.update_data(less_common_words=False)
 
-#Вернуть слово/соответствие в категории
-@router.callback_query(F.data.startswith('return'))
-async def display_edit_words_return(callback: CallbackQuery):
+#Текст для вывода слов
+async def text_words(category_id, pages, page, less_name, less_matching):
+    name_category = (await rq.get_name_category_by_id(category_id)).first()
+
+    def decorate(item, less_name, less_matching):
+        if less_name == less_matching:
+            name, matching = item
+            return f"{name}  -  <i>{matching}</i>"
+        if less_name:
+            name = item[0]
+            return name
+        matching = item[0]
+        return f"<i>{matching}</i>"
+
+    return f"Категория <b>{name_category}</b>\n\n{(
+                '\n'.join(
+                    decorate(item, less_name, less_matching)
+                    for item in pages[page]
+                    )
+                if pages else 'Здесь пока пусто'
+                	            )}"
+
+#Вывод слов категории 
+@router.callback_query(F.data.startswith('cat'))
+async def display_words(callback: CallbackQuery, state: FSMContext):
 
     category_id = callback.data.split('_')[1]
-    less = callback.data.split('_')[2]
-    less_common_words = int(callback.data.split('_')[3])
-
     user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
+    
 
-    category = (await rq.get_name_category_by_id( callback.data.split('_')[1] )).first()
+    name_state = await state.get_state()
+    if name_state != WordsPages.check:
+        await state.clear()
 
-    if less == 'matching':
-        items = [
-            item + '  -  ' + '<i>'+(await rq.get_matching_by_name_and_category_id(item, category_id)).first()+'</i>'
-            for item in callback.message.text.split('\n')[2:]
-            ]
-    else:
-        items = [
-            (await rq.get_name_by_matching_and_category_id(item, category_id)).first() + '  -  ' + item
-            for item in callback.message.text.split('\n')[2:]
-            ]
+        await base_for_display_words(category_id, state)
+    
+
+    data = await state.get_data()
+    pages = data['pages']
+    current_page = data['current_page']
+    less_name = data['less_name']
+    less_matching = data['less_matching']
+    less_common_words = data['less_common_words']
 
     await callback.message.edit_text(
-        text=f"Категория <b>{category}</b>\n\n{(
-                '\n'.join(items) if items else 'Здесь пока пусто'
-                	            )}",
-        reply_markup=await kb.inline_words( category_id, user_dict_id, is_not_empty=bool(items), less_common_words=less_common_words ),
-        parse_mode='html'
+        await text_words(
+            category_id=category_id, 
+            pages=pages, 
+            page=current_page,
+            less_name=less_name,
+            less_matching=less_matching
+            ),
+        reply_markup=await kb.inline_words( 
+            category_id=category_id, 
+            user_dict_id=user_dict_id,
+            current_page=current_page,
+            cnt_pages=len(pages),
+            is_not_empty=bool(pages[0] if pages else False),
+            less_name = less_name,
+            less_matching = less_matching,
+            less_common_words = less_common_words
+            ),
+        parse_mode='html'       
         )
+
+#следующая страница
+@router.callback_query(F.data.startswith('next page'))
+async def next_page(callback:CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    current_page = data['current_page']
+    await state.update_data(current_page=current_page + 1)
+
+    await display_words(callback, state)
+
+#предыдущая страница
+@router.callback_query(F.data.startswith('previous page'))
+async def next_page(callback:CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    current_page = data['current_page']
+    await state.update_data(current_page=current_page - 1)
+
+    await display_words(callback, state)
+
+#Убрать слово в категории
+@router.callback_query(F.data.startswith('discard name'))
+async def discard_name(callback: CallbackQuery, state: FSMContext):
+
+    data = await state.get_data()
+    pages = data['pages']
+
+    pages = [
+        [
+        (item[1],)
+        for item in page
+        ] for page in pages
+    ]
+
+    await state.update_data(pages=pages)
+    await state.update_data(less_name=True)
+
+    await display_words(callback, state)
+
+#Убрать соответствие в категории
+@router.callback_query(F.data.startswith('discard matching'))
+async def discard_matching(callback: CallbackQuery, state: FSMContext):
+
+    data = await state.get_data()
+    pages = data['pages']
+
+    pages = [
+        [
+        (item[0],)
+        for item in page
+        ] for page in pages
+    ]
+
+    await state.update_data(pages=pages)
+    await state.update_data(less_matching=True)
+
+    await display_words(callback, state)
+
+#Вернуть слово в категорию
+@router.callback_query(F.data.startswith('return name'))
+async def return_name(callback: CallbackQuery, state: FSMContext):
+
+    category_id = callback.data.split('_')[1]
+
+    data = await state.get_data()
+    pages = data['pages']
+
+    pages = [
+        [
+        ((await rq.get_name_by_matching_and_category_id(item[0], category_id)).first(), item[0])
+        for item in page
+        ] for page in pages
+    ]
+
+    await state.update_data(pages=pages)
+    await state.update_data(less_name=False)
+
+    await display_words(callback, state)
+
+#Вернуть соответствие в категорию
+@router.callback_query(F.data.startswith('return matching'))
+async def return_name(callback: CallbackQuery, state: FSMContext):
+
+    category_id = callback.data.split('_')[1]
+
+    data = await state.get_data()
+    pages = data['pages']
+
+    pages = [
+        [
+        (item[0], (await rq.get_matching_by_name_and_category_id(item[0], category_id)).first())
+        for item in page
+        ] for page in pages
+    ]
+
+    await state.update_data(pages=pages)
+    await state.update_data(less_matching=False)
+
+    await display_words(callback, state)
 
 #Убрать простые слова в категории
-@router.callback_query(F.data.startswith('common_discard'))
-async def display_edit_words_discard_common_words(callback: CallbackQuery):
-    category_id = callback.data.split('_')[2]
-    #less = callback.data.split('_')[2]
-    
-    user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
-    category = (await rq.get_name_category_by_id( category_id )).first()
+@router.callback_query(F.data.startswith('discard common'))
+async def discard_common(callback: CallbackQuery, state: FSMContext):
+    category_id = callback.data.split('_')[1]
 
-    items = [item for item in await rq.get_difficult_words_by_categories_id( [category_id] )]
+    data = await state.get_data()
+    less_name = data['less_name']
+    less_matching = data['less_matching']
+
+    if less_name == less_matching:
+        items = [
+            (item.name, item.matching)
+            for item in await rq.get_difficult_words_by_categories_id( [category_id] )
+        ]
+    elif less_name:
+        items = [
+            (item.matching,)
+            for item in await rq.get_difficult_words_by_categories_id( [category_id] )
+        ]
+    else:
+        items = [
+            (item.name,)
+            for item in await rq.get_difficult_words_by_categories_id( [category_id] )
+        ]
+        
+    shuffle(items)
+        
+    pages = []
+    len_items = len(items)
+    for num in range((len_items + 14) // 15):
+        pages.append(items[num * 15: (num + 1) * 15])
+    
+    await state.update_data(pages=pages)
+    await state.update_data(current_page=0)
+    await state.update_data(less_common_words=True)
+
+
+    await display_words(callback, state)
+
+#Вернуть простые слова
+@router.callback_query(F.data.startswith('return common'))
+async def return_common(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+
+    await display_words(callback, state)
+
+#Перемешать слова категории
+@router.callback_query(F.data.startswith('shuffle'))
+async def shuffle_words(callback: CallbackQuery, state: FSMContext):
+
+    category_id = callback.data.split('_')[1]
+    user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
+
+    data = await state.get_data()
+    pages = data['pages']
+    current_page = data['current_page']
+    less_name = data['less_name']
+    less_matching = data['less_matching']
+    less_common_words = data['less_common_words']
+    
+    first_line = callback.message.text.split('\n')[0]
+    items = callback.message.text.split('\n')[2:]
+
+    shuffle(items)
 
     await callback.message.edit_text(
-        f"Категория <b>{category}</b>\n\n{(
-                '\n'.join( item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
-                if items else 'Здесь пока пусто'
-                	            )}",
-        reply_markup=await kb.inline_words( category_id, user_dict_id, is_not_empty=bool(items), less_common_words=True ),
-        parse_mode='html'
-        )
+        f"{first_line}\n\n{(
+                '\n'.join( item for item in items )
+        )}", 
+        reply_markup=await kb.inline_words( 
+            category_id=category_id, 
+            user_dict_id=user_dict_id,
+            current_page=current_page,
+            cnt_pages=len(pages),
+            is_not_empty=bool(pages[0] if pages else False),
+            less_name = less_name,
+            less_matching = less_matching,
+            less_common_words = less_common_words
+            ),
+        parse_mode='html' 
+    )
 
 #-----------------------------------------------------------------------------------
 #endregion
@@ -319,9 +514,20 @@ async def display_edit_words_discard_common_words(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith('add new cat'))
 async def add_new_category(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+
+    state_name = await state.get_state()
+    if state_name is not None:
+        await state.clear()
+    
     await state.set_state(RegistationNewCat.name)
-    await state.update_data(user_dict_id= callback.data.split('_')[1])
-    await callback.message.answer('Введите название', reply_markup= await kb.reply_cancel_add_new_item())
+    user_dict_id = callback.data.split('_')[1]
+    await state.update_data(user_dict_id=user_dict_id)
+    name_user_dict = (await rq.get_name_user_dict_by_id(user_dict_id)).first()
+    
+    await callback.message.answer(f'Введите название новой категории словаря <b>{name_user_dict}</b>', 
+                                  reply_markup= await kb.reply_cancel_add_new_item(),
+                                  parse_mode='html')
 
 #Получение названия категории
 @router.message(RegistationNewCat.name)
@@ -334,17 +540,34 @@ async def set_name_category(message: Message, state: FSMContext):
         name_user_dict =  (await rq.get_name_user_dict_by_id(user_dict_id)).first()
 
         await message.answer(f'Словарь <b>{name_user_dict}</b>', 
-                                  reply_markup=await kb.inline_categories( user_dict_id ), 
-                                  parse_mode='html')
-
+                                    reply_markup=await kb.inline_edit_user_dict( user_dict_id ), 
+                                    parse_mode='html')
         return 
+
     await state.update_data(name=message.text)
     data = await state.get_data()
     await state.clear()
     await rq.add_new_category(data['user_dict_id'], message.text)
     category_id = (await rq.get_id_category_by_name(message.text)).first()
+
+        
+    pages = [[]]
+
+    await state.set_state(WordsPages.check)
+    await state.update_data(pages=pages)
+    await state.update_data(current_page=0)
+    await state.update_data(less_name=False)
+    await state.update_data(less_matching=False)
+    await state.update_data(less_common_words=False)
+
     await message.answer(f"Категория <b>{message.text}</b>\n\nЗдесь пока пусто", 
-                         reply_markup= await kb.inline_words(category_id, data['user_dict_id'], False),
+                         reply_markup= await kb.inline_words(
+                             category_id=category_id, 
+                             user_dict_id=data['user_dict_id'], 
+                             current_page=0,
+                             cnt_pages=len(pages),
+                             is_not_empty=False,
+                             ),
                          parse_mode='html'
                          )
 
@@ -364,7 +587,7 @@ async def set_name_category(message: Message, state: FSMContext):
 async def edit_category(callback: CallbackQuery):
     category_id = callback.data.split('_')[1]
     name_category = (await rq.get_name_category_by_id(category_id)).first()
-    await callback.message.answer(f'Категория <b>{name_category}</b>', 
+    await callback.message.edit_text(f'Категория <b>{name_category}</b>', 
                                   reply_markup= await kb.inline_edit_category(category_id),
                                   parse_mode='html'
                                   )
@@ -385,7 +608,7 @@ async def edit_category(callback: CallbackQuery):
 async def del_category(callback: CallbackQuery):
     category_id = callback.data.split('_')[1]
     name_category = (await rq.get_name_category_by_id(category_id)).first()
-    await callback.message.answer(f'Вы точно хотите удалить категорию {name_category}?', 
+    await callback.message.edit_text(f'Вы точно хотите удалить категорию {name_category}?', 
                                   reply_markup= await kb.inline_confirm_del_category(category_id))
 
 #Получение подтверждения
@@ -396,7 +619,7 @@ async def confirm_del_category(callback: CallbackQuery):
     user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
     name_user_dict = (await rq.get_name_user_dict_by_id(user_dict_id)).first()
     await rq.delete_category(category_id)
-    await callback.message.answer(f"Категория <b>{name_category}</b> удалена", 
+    await callback.message.edit_text(f"Категория <b>{name_category}</b> удалена",
                                   parse_mode='html')
     await callback.message.answer(f'Словарь <b>{name_user_dict}</b>', 
                                   reply_markup=await kb.inline_categories( user_dict_id ), 
@@ -429,13 +652,22 @@ async def confirm_del_category(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith('add new word'))
 async def add_new_word(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+    category_id = callback.data.split('_')[1]
+    user_dict_id = (await rq.get_id_user_dict_by_id_category( 
+                                callback.data.split('_')[1])).first()
+    
+    state_name = await state.get_state()
+    if state_name is not None:
+        await state.clear()
+    
     await state.set_state(RegistationNewItem.name)
-    await state.update_data(category_id=callback.data.split('_')[1])
-    await state.update_data(user_dict_id= 
-                            (await rq.get_id_user_dict_by_id_category( 
-                                callback.data.split('_')[1])).first() )
-    await callback.answer('Добавить новое слово')
-    await callback.message.answer('Введите слово', reply_markup= await kb.reply_cancel_add_new_item())
+    await state.update_data(category_id=category_id)
+    await state.update_data(user_dict_id=user_dict_id)
+    name_category = (await rq.get_name_category_by_id(category_id)).first()
+    await callback.message.answer(f'Введите новое слово категории <b>{name_category}</b>', 
+                                  reply_markup= await kb.reply_cancel_add_new_item(),
+                                  parse_mode='html')
 
 #Получение слова
 @router.message(RegistationNewItem.name)
@@ -446,18 +678,11 @@ async def set_name_word(message: Message, state: FSMContext):
     if message.text == 'ОТМЕНА':
         await state.clear()
 
-        category = (await rq.get_name_category_by_id(category_id)).first()
-        user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
-        items = [item for item in await rq.get_words_by_category(category_id)]
-
-        await message.answer(f"Категория <b>{category}</b>\n\n{(
-            '\n'.join(item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
-            if items else 'Здесь пока пусто'    )}",
-                    reply_markup=await kb.inline_words(
-                        category_id, user_dict_id, bool(items)
-                    ),
-                    parse_mode='html'
-        )
+        name_category = (await rq.get_name_category_by_id(category_id)).first()
+        await message.answer(f'Категория <b>{name_category}</b>', 
+                                    reply_markup= await kb.inline_edit_category(category_id),
+                                    parse_mode='html'
+                                    )
 
         return 
     
@@ -480,44 +705,58 @@ async def set_name_word(message: Message, state: FSMContext):
 #Получение соответствия (перевод)
 @router.message(RegistationNewItem.matching)
 async def set_matching_word(message: Message, state: FSMContext):
-    if message.text == 'ОТМЕНА':
-        data = await state.get_data()
-        await state.clear()
-
-        category_id = data['category_id']
-        category = (await rq.get_name_category_by_id(category_id)).first()
-        user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
-        items = [item for item in await rq.get_words_by_category(category_id)]
-
-        await message.answer(f"Категория <b>{category}</b>\n\n{(
-        '\n'.join(item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
-        if items else 'Здесь пока пусто'    )}",
-                reply_markup=await kb.inline_words( 
-                    category_id, user_dict_id, bool(items)
-                ),
-                parse_mode='html'
-        )
-
-        return 
-    
     await state.update_data(matching=message.text)
     data = await state.get_data()
     await state.clear()
 
-    await rq.add_new_word(data['category_id'], data['name'], data['matching'])
-    await message.answer('Слово добавлено!')
+    category_id = data['category_id']
 
-    category = (await rq.get_name_category_by_id( data['category_id'] )).first()
-    user_dict_id = (await rq.get_id_user_dict_by_id_category(data['category_id'])).first()
-    items = [item for item in await rq.get_words_by_category(data['category_id'])]
+    if message.text == 'ОТМЕНА':
 
-    await message.answer(f"Категория <b>{category}</b>\n\n{(
-        '\n'.join(item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
-        if items else 'Здесь пока пусто'    )}",
-                reply_markup=await kb.inline_words( 
-                    data['category_id'], user_dict_id, bool(items)
-                ),
-                parse_mode='html'
+        name_category = (await rq.get_name_category_by_id(category_id)).first()
+        await message.answer(f'Категория <b>{name_category}</b>', 
+                                    reply_markup= await kb.inline_edit_category(category_id),
+                                    parse_mode='html'
+                                    )
+
+        return 
+
+    extra_words = await rq.add_new_word(category_id, data['name'], data['matching'])
+    await message.answer(f'Слово <b>{data['name']}</b> - <i>{data['matching']}</i> добавлено!' + extra_words,
+                         parse_mode='html')
+
+    user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
+    
+    
+    await base_for_display_words(category_id, state)
+
+    data = await state.get_data()
+    
+    pages = data['pages']
+    current_page = data['current_page']
+    less_name = data['less_name']
+    less_matching = data['less_matching']
+    less_common_words = data['less_common_words']
+
+    await message.answer(
+        await text_words(
+            category_id=category_id, 
+            pages=pages, 
+            page=current_page,
+            less_name=less_name,
+            less_matching=less_matching
+            ),
+        reply_markup=await kb.inline_words( 
+            category_id=category_id, 
+            user_dict_id=user_dict_id,
+            current_page=current_page,
+            cnt_pages=len(pages),
+            is_not_empty=bool(pages[0] if pages else False),
+            less_name = less_name,
+            less_matching = less_matching,
+            less_common_words = less_common_words
+            ),
+        parse_mode='html'       
         )
 
 #-----------------------------------------------------------------------------------
@@ -535,14 +774,22 @@ async def set_matching_word(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith('add words'))
 async def add_new_words(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+
+    state_name = await state.get_state()
+    if state_name is not None:
+        await state.clear()
+    
     await state.set_state(RegistationNewWords.file)
     await state.update_data(category_id=callback.data.split('_')[1])
 
     await callback.message.answer(
-        'Отправьте файл формата .txt. Каждая строка должна быть шаблона: "<i>слово</i> - <i>соответветствие</i>"', 
-                                  parse_mode='html', 
-                                  reply_markup= await kb.reply_cancel_add_new_item()
-                                  )
+'''Отправьте файл текстового или табличного формата
+Каждая строка текстового файла должна соответствовать шаблону: "<i>слово</i> - <i>перевод</i>"
+Табличный файл должен быть без заголовков''', 
+                    parse_mode='html', 
+                    reply_markup= await kb.reply_cancel_add_new_item()
+                    )
 
 
 
@@ -553,18 +800,13 @@ async def set_new_words(message: Message, state: FSMContext):
         await state.clear()
 
         category_id = data['category_id']
-        category = (await rq.get_name_category_by_id(category_id)).first()
         user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
-        items = [item for item in await rq.get_words_by_category(category_id)]
 
-        await message.answer(f"Категория <b>{category}</b>\n\n{(
-        '\n'.join(item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
-        if items else 'Здесь пока пусто'    )}",
-                reply_markup=await kb.inline_words( 
-                    category_id, user_dict_id, bool(items)
-                ),
-                parse_mode='html'
-        )
+        name_category = (await rq.get_name_category_by_id(category_id)).first()
+        await message.answer(f'Категория <b>{name_category}</b>', 
+                                    reply_markup= await kb.inline_edit_category(category_id),
+                                    parse_mode='html'
+                                    )
 
         return 
     
@@ -575,6 +817,13 @@ async def set_new_words(message: Message, state: FSMContext):
         document.mime_type in ['application/vnd.ms-excel', 'text/csv', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
     ):
         await message.answer("Пожалуйста, отправьте текстовый, CSV или XLSX документ")
+
+        name_category = (await rq.get_name_category_by_id(category_id)).first()
+        await message.answer(f'Категория <b>{name_category}</b>', 
+                                    reply_markup= await kb.inline_edit_category(category_id),
+                                    parse_mode='html'
+                                    )
+        
         return
 
     data = await state.get_data()
@@ -619,25 +868,44 @@ async def set_new_words(message: Message, state: FSMContext):
             ]
         
         extra_words = await rq.add_new_words(data['category_id'], words_data)
-        await message.answer('Слова добавлены!' + extra_words)
+        name_category = (await rq.get_name_category_by_id(category_id)).first()
+        await message.answer(f'Слова добавлены в категорию {name_category}!' + extra_words)
 
     except:
         await message.answer(f"Произошла ошибка при обработке файла")
-        return
 
-    category = (await rq.get_name_category_by_id(data['category_id'])).first()
     user_dict_id = (await rq.get_id_user_dict_by_id_category(data['category_id'])).first()
-    items = [item for item in await rq.get_words_by_category(data['category_id'])]
 
-    await message.answer(f"Категория <b>{category}</b>\n\n{(
-        '\n'.join(item.name + '  -  ' + '<i>' + item.matching + '</i>' for item in items)
-        if items else 'Здесь пока пусто'
-    )}",
-        reply_markup=await kb.inline_words(
-            data['category_id'], user_dict_id, bool(items)
-        ),
-        parse_mode='html'
-    )
+
+    await base_for_display_words(category_id, state)
+
+    data = await state.get_data()
+    pages = data['pages']
+    current_page = data['current_page']
+    less_name = data['less_name']
+    less_matching = data['less_matching']
+    less_common_words = data['less_common_words']
+
+    await message.answer(
+        await text_words(
+            category_id=category_id, 
+            pages=pages, 
+            page=current_page,
+            less_name=less_name,
+            less_matching=less_matching
+            ),
+        reply_markup=await kb.inline_words( 
+            category_id=category_id, 
+            user_dict_id=user_dict_id,
+            current_page=current_page,
+            cnt_pages=len(pages),
+            is_not_empty=bool(pages[0] if pages else False),
+            less_name = less_name,
+            less_matching = less_matching,
+            less_common_words = less_common_words
+            ),
+        parse_mode='html'       
+        )
 
 
 #endregion
@@ -654,10 +922,17 @@ async def set_new_words(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith('del word'))
 async def del_word(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+
+    state_name = await state.get_state()
+    if state_name is not None:
+        await state.clear()
+    
     await state.set_state(ConfirmDelWord.name)
-    await state.update_data(category_id=callback.data.split('_')[1])
-    await callback.answer('Удалить слово')
-    await callback.message.answer('Введите слово, которое хотите удалить')
+    category_id = callback.data.split('_')[1]
+    await state.update_data(category_id=category_id)
+    await callback.message.answer('Введите слово, которое хотите удалить', 
+                                  reply_markup= await kb.cancel_delete_word(category_id))
 
 #Получение слова
 @router.message(ConfirmDelWord.name)
@@ -666,6 +941,14 @@ async def get_name_word_for_delete(message: Message, state: FSMContext):
     data = await state.get_data()
     await state.clear()
     category_id = data['category_id']
+
+    if name_word == 'ОТМЕНА':
+        name_category = (await rq.get_name_category_by_id(category_id)).first()
+        await message.answer(f'Категория <b>{name_category}</b>', 
+                                    reply_markup= await kb.inline_edit_category(category_id),
+                                    parse_mode='html'
+                                    )
+        return
 
     if (await rq.check_word_in_category(name_word, category_id)).first() is None:
         name_category = (await rq.get_name_category_by_id(category_id)).first()
@@ -684,26 +967,50 @@ async def get_name_word_for_delete(message: Message, state: FSMContext):
 
 #Получение подтверждения
 @router.callback_query(F.data.startswith('confirm del word'))
-async def confirm_del_word(callback: CallbackQuery):
+async def confirm_del_word(callback: CallbackQuery, state: FSMContext):
     word_id = callback.data.split('_')[1]
     name_word = (await rq.get_name_word_by_id(word_id)).first()
     category_id = callback.data.split('_')[2]
     name_category = (await rq.get_name_category_by_id(category_id)).first()
-
+    user_dict_id = (await rq.get_id_user_dict_by_id_category(category_id)).first()
 
     await rq.delete_word(word_id)
-    await callback.message.answer(f"Слово {name_word} удалено")
-    items = [item for item in await rq.get_words_by_category(category_id)]
-    await callback.message.answer(f"Категория <b>{name_category}</b>\n\n{(
-        '\n'.join(item.name +'  -  '+ '<i>'+item.matching+'</i>' for item in items)
-        if items else 'Здесь пока пусто'    )}",
-                                   reply_markup=await kb.inline_words( 
-                                       category_id, 
-                                       (await rq.get_id_user_dict_by_id_category(category_id)).first(),
-                                       bool(items)
-                                                                    ),
-                                    parse_mode='html'
-                                   )
+    await callback.message.edit_text(f"Слово <b>{name_word}</b> удалено из категории <b>{name_category}</b>",
+                                     parse_mode='html')
+    
+    name_state = await state.get_state()
+    if name_state != None:
+        await state.clear()
+
+    await base_for_display_words(category_id, state)
+
+    data = await state.get_data()
+    pages = data['pages']
+    current_page = data['current_page']
+    less_name = data['less_name']
+    less_matching = data['less_matching']
+    less_common_words = data['less_common_words']
+
+    await callback.message.answer(
+        await text_words(
+            category_id=category_id, 
+            pages=pages, 
+            page=current_page,
+            less_name=less_name,
+            less_matching=less_matching
+            ),
+        reply_markup=await kb.inline_words( 
+            category_id=category_id, 
+            user_dict_id=user_dict_id,
+            current_page=current_page,
+            cnt_pages=len(pages),
+            is_not_empty=bool(pages[0] if pages else False),
+            less_name = less_name,
+            less_matching = less_matching,
+            less_common_words = less_common_words
+            ),
+        parse_mode='html'       
+        )
 
 #-----------------------------------------------------------------------------------
 #endregion
@@ -719,12 +1026,12 @@ async def confirm_del_word(callback: CallbackQuery):
 #Обработка списка обычных слов
 @router.callback_query(F.data.startswith('learn all'))
 async def list_of_common_words(callback: CallbackQuery, state: FSMContext):
-
     if callback.data.split('_')[1] == 'dict':
         user_dict_id = callback.data.split('_')[2]
         categories_id = [category_id for category_id in await rq.get_categories_id_by_user_dict_id(user_dict_id)]
     else:
         categories_id = [ callback.data.split('_')[2] ]
+        user_dict_id = (await rq.get_id_user_dict_by_id_category(categories_id[0])).first()
 
     words = []
     
@@ -734,18 +1041,42 @@ async def list_of_common_words(callback: CallbackQuery, state: FSMContext):
     
     shuffle(words)
 
-    await list_of_difficult_words(callback, state, words, categories_id, True)
+    state_name = await state.get_state()
+    if state_name is not None:
+        await state.clear()
+    
+    await state.set_state(LearnWords.name)
+    await state.update_data(categories_id=categories_id)
+    await state.update_data(user_dict_id=user_dict_id)
+    await state.update_data(words=words)
+
+    await list_of_difficult_words(callback, state, True)
     
 #Обработка списка сложных слов
 @router.callback_query(F.data.startswith('learn diff'))
-async def list_of_difficult_words(callback: CallbackQuery, state: FSMContext, words: list = [], categories_id: list = [], is_call: bool = False):
-
+async def list_of_difficult_words(callback: CallbackQuery, state: FSMContext, is_call: bool = False):
+    await callback.message.delete()
     if not is_call:
         if callback.data.split('_')[1] == 'dict':
             user_dict_id = callback.data.split('_')[2]
             categories_id = [category_id for category_id in await rq.get_categories_id_by_user_dict_id(user_dict_id)]
         else:
             categories_id = [ callback.data.split('_')[2] ]
+            user_dict_id = (await rq.get_id_user_dict_by_id_category(categories_id[0])).first()
+        
+        state_name = await state.get_state()
+        if state_name is not None:
+            await state.clear()
+
+        await state.set_state(LearnWords.name)
+        await state.update_data(categories_id=categories_id)
+        await state.update_data(user_dict_id=user_dict_id)
+        await state.update_data(words=[])
+    else:
+        data = await state.get_data()
+        categories_id = data['categories_id']
+        
+
 
     difficult_words = {1: [], 2: [], 3: []}
 
@@ -753,15 +1084,20 @@ async def list_of_difficult_words(callback: CallbackQuery, state: FSMContext, wo
         name, matching = word.name, word.matching
         difficult_words[word.level_difficulty].append( (name, matching) )
 
+    tasks = []
     order_difficult_words = []
     for level_difficulty in range(1, 4):
         shuffle(difficult_words[level_difficulty])
         for word in difficult_words[level_difficulty]:
             name, matching = word
-            await set_level_difficulty({'name': name, 'matching': matching, 'level_difficulty': level_difficulty},
-                                       order_difficult_words, categories_id)
+            tasks.append( set_level_difficulty({'name': name, 'matching': matching, 'level_difficulty': level_difficulty},
+                                       order_difficult_words, categories_id) )
+    await asyncio.gather(*tasks)
+
+    await state.update_data(order_difficult_words=order_difficult_words)
+    await state.update_data(difficult_words=difficult_words)
     
-    await give_word(callback.message, order_difficult_words, words, categories_id, state)
+    await give_word(callback.message, state )
 
 #Изменить сложность слова
 async def set_level_difficulty(word, order_difficult_words, categories_id: list, correct_answer=None):
@@ -788,11 +1124,14 @@ async def set_level_difficulty(word, order_difficult_words, categories_id: list,
         order_difficult_words.insert( 5 * level_difficulty, word )
 
 #Вывод слова изучаемого раздела
-async def give_word(message: Message, order_difficult_words: list, words: list, categories_id: list, state:FSMContext):
-    await state.set_state(LearnWords.name)
-    await state.update_data(categories_id = categories_id)
-    await state.update_data(words = words)
-    await state.update_data(order_difficult_words = order_difficult_words)
+async def give_word(message: Message, state:FSMContext ):
+
+    data = await state.get_data()
+
+    order_difficult_words = data['order_difficult_words']
+    words = data['words']
+    categories_id = data['categories_id']
+    user_dict_id = data['user_dict_id']
 
     word = (order_difficult_words.pop(0) if order_difficult_words else None)
     if word is None:
@@ -808,9 +1147,15 @@ async def give_word(message: Message, order_difficult_words: list, words: list, 
         await message.answer(word['matching'], reply_markup = await kb.reply_learn_word())
         await state.update_data(last_word = word)
     else:
-        await message.answer('Поздравяю! Ты выучил слова')
-        user_dict_id = (await rq.get_id_user_dict_by_id_category(categories_id[0])).first()
         name_user_dict =  (await rq.get_name_user_dict_by_id(user_dict_id)).first()
+
+        if len(categories_id) == 1:
+            name_category = (await rq.get_name_category_by_id(categories_id[0])).first()
+            extra_words = f'категории <b>{name_category}</b>'
+        else:
+            extra_words = f'словаря <b>{name_user_dict}</b>'
+
+        await message.answer(f'Поздравяю! Ты выучил слова ' + extra_words, parse_mode='html')
         await message.answer(f'Словарь <b>{name_user_dict}</b>', 
                              reply_markup=await kb.inline_categories( user_dict_id ), 
                              parse_mode='html')
@@ -818,26 +1163,26 @@ async def give_word(message: Message, order_difficult_words: list, words: list, 
 #Проверка правильности соотеветствия/перевода
 @router.message(LearnWords.name)
 async def get_name(message: Message, state: FSMContext):
+
     data = await state.get_data()
+
     word = data['last_word']
     order_difficult_words = data['order_difficult_words']
     categories_id = data['categories_id']
-    words = data['words']
+    user_dict_id = data['user_dict_id']
     
     if message.text != 'ЗАКОНЧИТЬ':
         is_correct_answer = (message.text.lower() == word['name'].lower())
         if not is_correct_answer:
-            await message.answer( f"{word['name']}  -  {word['matching']}")
+            await message.answer( f"{word['name']}  -  {word['matching']}" )
 
         if (not is_correct_answer) or (word['level_difficulty'] != 0):
             await set_level_difficulty(word, order_difficult_words, categories_id, is_correct_answer)
 
-        await give_word(message, order_difficult_words, words, categories_id, state)
+        await give_word(message, state)
     else:
-        await state.clear()
-
         await message.answer('Ты большой молодец!')
-        user_dict_id = (await rq.get_id_user_dict_by_id_category(categories_id[0])).first()
+
         name_user_dict =  (await rq.get_name_user_dict_by_id(user_dict_id)).first()
         await message.answer(f'Словарь <b>{name_user_dict}</b>', 
                              reply_markup=await kb.inline_categories( user_dict_id ), 

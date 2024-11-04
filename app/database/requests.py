@@ -210,7 +210,10 @@ async def get_difficult_words_by_dict(user_dict_id):
                                     )
     
 #Запись нового слова
-async def add_new_word(category_id, name, matching):
+async def add_new_word(category_id, name:str, matching:str):
+    if '  -  ' in name or '  -  ' in matching or name.endswith('  -') or name.endswith('  - ') or matching.startswith('-  ') or matching.startswith(' -  '):
+        return '\nДобавлены только корректные слова'
+    
     async with async_session() as session:
         session.add(
             Item(
@@ -221,15 +224,19 @@ async def add_new_word(category_id, name, matching):
                  )
             )
         await session.commit()
+    return ''
 
 #Запись новых слов
 async def add_new_words(category_id, words_data):
     names = { name for name in await get_words_by_category_without_matching(category_id) }
     items = []
 
-    extra_words = ''
+    
     for  name, matching in words_data:
         if name not in names:
+            if '  -  ' in name or '  -  ' in matching or name.endswith('  -') or name.endswith('  - ') or matching.startswith('-  ') or matching.startswith(' -  '):
+                incorrect_flag = True
+                continue
             items.append(
                 Item(
                     name=name,
@@ -240,8 +247,13 @@ async def add_new_words(category_id, words_data):
             )
             names.add(name)
         else:
-            extra_words = '\nДобавлены только уникальные слова'
-
+            ununique_flag = True
+    
+    extra_words = ''
+    if incorrect_flag:
+        extra_words = extra_words + '\nДобавлены только корректные слова'
+    if ununique_flag:
+        extra_words = extra_words + '\nДобавлены только уникальные слова'
     async with async_session() as session:
         session.add_all(items)
         await session.commit()
