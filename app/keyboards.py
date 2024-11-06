@@ -9,9 +9,10 @@ import app.database.requests as rq
 
 #СЛОВАРИ
 
-async def inline_dictionaries():
+async def inline_dictionaries(chat_id):
     keyboard = InlineKeyboardBuilder()
-    for user_dict in await rq.get_user_dicts():
+    await rq.get_user_dicts(chat_id)
+    for user_dict in await rq.get_user_dicts(chat_id):
         keyboard.add(InlineKeyboardButton(text=user_dict.name, callback_data=f'dict_{user_dict.id}'))
     keyboard.add(InlineKeyboardButton(text='Новый словарь', callback_data='add new dict'))
     return keyboard.adjust(2).as_markup()
@@ -36,11 +37,11 @@ async def inline_confirm_del_user_dict(user_dict_id):
 
 #КАТЕГОРИИ
 
-async def inline_categories(user_dict_id):
+async def inline_categories(chat_id, user_dict_id):
 
     categories = [[]]
 
-    for category in await rq.get_categories(user_dict_id):
+    for category in await rq.get_categories(chat_id, user_dict_id):
         if len(categories[-1]) == 2:
             categories.append([])
         categories[-1].append( InlineKeyboardButton(text=category.name, callback_data=f'cat_{category.id}') )
@@ -77,7 +78,7 @@ async def inline_confirm_del_category(category_id):
 
 #СЛОВА
 
-async def inline_words(category_id, user_dict_id, current_page, cnt_pages, is_not_empty, less_name=False, less_matching=False, less_common_words=0):
+async def inline_words(chat_id, category_id, user_dict_id, current_page, cnt_pages, is_not_empty, less_name=False, less_matching=False, less_common_words=0):
     
     buttons = []
 
@@ -98,7 +99,7 @@ async def inline_words(category_id, user_dict_id, current_page, cnt_pages, is_no
                         InlineKeyboardButton(text='Вперёд', callback_data= f'next page_{category_id}' )
                 ])
 
-        name, matching = (await rq.get_name_and_matching_user_dict_by_id(user_dict_id)).first()
+        name, matching = (await rq.get_name_and_matching_user_dict_by_id(chat_id, user_dict_id)).first()
         
         if less_name == less_matching == False:
             buttons.append([
