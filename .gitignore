@@ -1,0 +1,4 @@
+user_databases/
+*.sqlite3
+config.py
+*.pyc
