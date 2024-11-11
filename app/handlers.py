@@ -228,13 +228,6 @@ async def confirm_del_user_dict(callback: CallbackQuery):
 #region CATEGORIES
 
 
-
-#Вывод слов категории
-#следующая страница
-#предыдущая страница
-
-
-
 #ВЫВОД КАТЕГОРИЙ СЛОВАРЯ
 #region
 #-----------------------------------------------------------------------------------
@@ -490,10 +483,10 @@ async def text_words(user_id, category_id, pages, page, less_name, less_matching
             name, matching = item
             return f"{name}  -  <i>{matching}</i>"
         if less_name:
-            name = item[0]
-            return name
-        matching = item[0]
-        return f"<i>{matching}</i>"
+            matching = item[0]
+            return f"<i>{matching}</i>"
+        name = item[0]
+        return name
 
     new_line = '\n'
     return f"Категория <b>{name_category}</b>\n\n{(new_line.join(decorate(item, less_name, less_matching) for item in pages[page]) if pages else 'Здесь пока пусто')}"
