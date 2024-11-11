@@ -37,8 +37,8 @@ class Item(Base):
 
     category = relationship("Category", back_populates="items")
 
-async def create_user_database(chat_id: int):
-    user_database_url = f"sqlite+aiosqlite:///user_databases/user_{chat_id}.db"
+async def create_user_database(user_id: int):
+    user_database_url = f"sqlite+aiosqlite:///user_databases/user_{user_id}.db"
     user_engine = create_async_engine(user_database_url)
 
     
@@ -47,8 +47,8 @@ async def create_user_database(chat_id: int):
 
 
 
-async def get_user_database(chat_id: int):
-    user_database_url = f"sqlite+aiosqlite:///user_databases/user_{chat_id}.db"
+async def get_user_database(user_id: int):
+    user_database_url = f"sqlite+aiosqlite:///user_databases/user_{user_id}.db"
 
     user_engine = create_async_engine(user_database_url)
     user_session = async_sessionmaker(user_engine)

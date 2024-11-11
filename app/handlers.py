@@ -26,6 +26,11 @@ class RegistationNewCat(StatesGroup):
     user_dict_id = ''
     name = State()
 
+class CategorisePages(StatesGroup):
+    check = State()
+    current_page = 0
+    pages = []
+
 class WordsPages(StatesGroup):
     check = State()
     current_page = 0
@@ -154,32 +159,6 @@ async def set_name_dict(message: Message, state: FSMContext):
 
 
 
-#ВЫВОД КАТЕГОРИЙ СЛОВАРЯ
-#region
-#-----------------------------------------------------------------------------------
-#                              /start/{название словаря}
-#-----------------------------------------------------------------------------------
-
-
-@router.callback_query(F.data.startswith('dict'))
-async def displlay_user_dicts(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-
-    name_state = await state.get_state()
-    if name_state != None:
-        await state.clear()
-
-    user_dict_id = callback.data.split('_')[1]
-    name_user_dict =  (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
-    await callback.message.edit_text(f'Словарь <b>{name_user_dict}</b>',
-                                  reply_markup=await kb.inline_categories(user_id, user_dict_id ),
-                                  parse_mode='html')
-
-#-----------------------------------------------------------------------------------
-#endregion
-
-
-
 #РЕДАКТИРОВАНИЕ СЛОВАРЯ
 #region
 #-----------------------------------------------------------------------------------
@@ -247,6 +226,230 @@ async def confirm_del_user_dict(callback: CallbackQuery):
 
 ####################################################################################
 #region CATEGORIES
+
+
+
+#Вывод слов категории
+#следующая страница
+#предыдущая страница
+
+
+
+#ВЫВОД КАТЕГОРИЙ СЛОВАРЯ
+#region
+#-----------------------------------------------------------------------------------
+#                              /start/{название словаря}
+#-----------------------------------------------------------------------------------
+
+#создание основы для вывода категорий
+async def base_for_display_categories(user_id: int, user_dict_id: int, state: FSMContext):
+    
+    pages = [[]]
+    for item in await rq.get_categories(user_id, user_dict_id):
+        if len(pages[-1]) == 10:
+            pages.append([])
+
+        pages[-1].append( (item.id, item.name) )
+    
+    await state.set_state(CategorisePages.check)
+    await state.update_data(pages=pages)
+    await state.update_data(current_page=0)
+
+
+#Вывод слов категории
+@router.callback_query(F.data.startswith('dict'))
+async def display_categories(callback: CallbackQuery, state: FSMContext):
+
+    user_id = callback.from_user.id
+    user_dict_id = callback.data.split('_')[1]
+
+    name_state = await state.get_state()
+    if name_state != CategorisePages.check:
+        await state.clear()
+
+        await base_for_display_categories(user_id, user_dict_id, state)
+    
+    data = await state.get_data()
+    pages = data['pages']
+    current_page = data['current_page']
+
+    name_user_dict = (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
+    await callback.message.edit_text(f'Словарь <b>{name_user_dict}</b>',
+                                  reply_markup=await kb.inline_categories(user_dict_id, pages[current_page], current_page, len(pages)),
+                                  parse_mode='html')
+
+#Слудующая страница
+@router.callback_query(F.data.startswith('next cat page'))
+async def next_categories_page(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    current_page = data['current_page']
+    await state.update_data(current_page=current_page + 1)
+
+    await display_categories(callback, state)
+
+#Предыдущая страница
+@router.callback_query(F.data.startswith('previous cat page'))
+async def previous_categories_page(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    current_page = data['current_page']
+    await state.update_data(current_page=current_page - 1)
+
+    await display_categories(callback, state)
+
+
+#-----------------------------------------------------------------------------------
+#endregion
+
+
+
+
+#СОЗДАНИЕ НОВОЙ КАТЕГОРИИ
+#region
+#-----------------------------------------------------------------------------------
+#    /start/{название словаря}/редактировать словарь/добавить новую категорию
+#-----------------------------------------------------------------------------------
+
+
+@router.callback_query(F.data.startswith('add new cat'))
+async def add_new_category(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+
+    await callback.message.delete()
+
+    state_name = await state.get_state()
+    if state_name is not None:
+        await state.clear()
+
+    await state.set_state(RegistationNewCat.name)
+    user_dict_id = callback.data.split('_')[1]
+    await state.update_data(user_dict_id=user_dict_id)
+    name_user_dict = (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
+
+    await callback.message.answer(f'Введите название новой категории словаря <b>{name_user_dict}</b>',
+                                  reply_markup= await kb.reply_cancel_add_new_item(),
+                                  parse_mode='html')
+
+#Получение названия категории
+@router.message(RegistationNewCat.name)
+async def set_name_category(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+
+    if message.text == 'ОТМЕНА':
+        data = await state.get_data()
+        await state.clear()
+
+        user_dict_id = data['user_dict_id']
+        name_user_dict =  (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
+
+        await message.answer(f'Словарь <b>{name_user_dict}</b>',
+                                    reply_markup=await kb.inline_edit_user_dict( user_dict_id ),
+                                    parse_mode='html')
+        return
+
+    await state.update_data(name=message.text)
+    data = await state.get_data()
+    await state.clear()
+    await rq.add_new_category(user_id, data['user_dict_id'], message.text)
+    category_id = (await rq.get_id_category_by_name(user_id, message.text)).first()
+
+
+    pages = [[]]
+
+    await state.set_state(WordsPages.check)
+    await state.update_data(pages=pages)
+    await state.update_data(current_page=0)
+    await state.update_data(less_name=False)
+    await state.update_data(less_matching=False)
+    await state.update_data(less_common_words=False)
+
+    await message.answer(f"Категория <b>{message.text}</b>\n\nЗдесь пока пусто",
+                         reply_markup= await kb.inline_words(
+                             user_id=user_id,
+                             category_id=category_id,
+                             user_dict_id=data['user_dict_id'],
+                             current_page=0,
+                             cnt_pages=len(pages),
+                             is_not_empty=False,
+                             ),
+                         parse_mode='html'
+                         )
+
+#-----------------------------------------------------------------------------------
+#endregion
+
+
+
+#РЕДАКТИРОВАНИЕ КАТЕГОРИИ
+#region
+#-----------------------------------------------------------------------------------
+#     /start/{название словаря}/{название категории}/редактировать категорию
+#-----------------------------------------------------------------------------------
+
+
+@router.callback_query(F.data.startswith('edit cat'))
+async def edit_category(callback: CallbackQuery):
+    user_id = callback.from_user.id
+
+    category_id = callback.data.split('_')[1]
+    name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
+    await callback.message.edit_text(f'Категория <b>{name_category}</b>',
+                                  reply_markup= await kb.inline_edit_category(category_id),
+                                  parse_mode='html'
+                                  )
+
+#-----------------------------------------------------------------------------------
+#endregion
+
+
+
+#УДАЛЕНИЕ КАТЕГОРИИ
+#region
+#-----------------------------------------------------------------------------------
+#          /start/{название словаря}/редактировать словарь/удалить словарь
+#-----------------------------------------------------------------------------------
+
+
+@router.callback_query(F.data.startswith('del cat'))
+async def del_category(callback: CallbackQuery):
+    user_id = callback.from_user.id
+
+    category_id = callback.data.split('_')[1]
+    name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
+    await callback.message.edit_text(f'Вы точно хотите удалить категорию {name_category}?',
+                                  reply_markup= await kb.inline_confirm_del_category(category_id))
+
+#Получение подтверждения
+@router.callback_query(F.data.startswith('confirm del cat'))
+async def confirm_del_category(callback: CallbackQuery):
+    user_id = callback.from_user.id
+
+    category_id = callback.data.split('_')[1]
+    name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
+    user_dict_id = (await rq.get_id_user_dict_by_id_category(user_id, category_id)).first()
+    name_user_dict = (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
+    await rq.delete_category(user_id, category_id)
+    await callback.message.edit_text(f"Категория <b>{name_category}</b> удалена",
+                                  parse_mode='html')
+    await callback.message.answer(f'Словарь <b>{name_user_dict}</b>',
+                                  reply_markup=await kb.inline_categories(user_id, user_dict_id ),
+                                  parse_mode='html')
+
+#-----------------------------------------------------------------------------------
+#endregion
+
+
+#endregion
+
+
+
+
+####################################################################################
+
+#                              РАБОТА СО СЛОВАМИ
+
+####################################################################################
+#region WORDS
+
 
 
 #ВЫВОД СЛОВ КАТЕГОРИИ
@@ -527,154 +730,6 @@ async def shuffle_words(callback: CallbackQuery, state: FSMContext):
 #-----------------------------------------------------------------------------------
 #endregion
 
-
-
-#СОЗДАНИЕ НОВОЙ КАТЕГОРИИ
-#region
-#-----------------------------------------------------------------------------------
-#    /start/{название словаря}/редактировать словарь/добавить новую категорию
-#-----------------------------------------------------------------------------------
-
-
-@router.callback_query(F.data.startswith('add new cat'))
-async def add_new_category(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-
-    await callback.message.delete()
-
-    state_name = await state.get_state()
-    if state_name is not None:
-        await state.clear()
-
-    await state.set_state(RegistationNewCat.name)
-    user_dict_id = callback.data.split('_')[1]
-    await state.update_data(user_dict_id=user_dict_id)
-    name_user_dict = (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
-
-    await callback.message.answer(f'Введите название новой категории словаря <b>{name_user_dict}</b>',
-                                  reply_markup= await kb.reply_cancel_add_new_item(),
-                                  parse_mode='html')
-
-#Получение названия категории
-@router.message(RegistationNewCat.name)
-async def set_name_category(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-
-    if message.text == 'ОТМЕНА':
-        data = await state.get_data()
-        await state.clear()
-
-        user_dict_id = data['user_dict_id']
-        name_user_dict =  (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
-
-        await message.answer(f'Словарь <b>{name_user_dict}</b>',
-                                    reply_markup=await kb.inline_edit_user_dict( user_dict_id ),
-                                    parse_mode='html')
-        return
-
-    await state.update_data(name=message.text)
-    data = await state.get_data()
-    await state.clear()
-    await rq.add_new_category(user_id, data['user_dict_id'], message.text)
-    category_id = (await rq.get_id_category_by_name(user_id, message.text)).first()
-
-
-    pages = [[]]
-
-    await state.set_state(WordsPages.check)
-    await state.update_data(pages=pages)
-    await state.update_data(current_page=0)
-    await state.update_data(less_name=False)
-    await state.update_data(less_matching=False)
-    await state.update_data(less_common_words=False)
-
-    await message.answer(f"Категория <b>{message.text}</b>\n\nЗдесь пока пусто",
-                         reply_markup= await kb.inline_words(
-                             user_id=user_id,
-                             category_id=category_id,
-                             user_dict_id=data['user_dict_id'],
-                             current_page=0,
-                             cnt_pages=len(pages),
-                             is_not_empty=False,
-                             ),
-                         parse_mode='html'
-                         )
-
-#-----------------------------------------------------------------------------------
-#endregion
-
-
-
-#РЕДАКТИРОВАНИЕ КАТЕГОРИИ
-#region
-#-----------------------------------------------------------------------------------
-#     /start/{название словаря}/{название категории}/редактировать категорию
-#-----------------------------------------------------------------------------------
-
-
-@router.callback_query(F.data.startswith('edit cat'))
-async def edit_category(callback: CallbackQuery):
-    user_id = callback.from_user.id
-
-    category_id = callback.data.split('_')[1]
-    name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
-    await callback.message.edit_text(f'Категория <b>{name_category}</b>',
-                                  reply_markup= await kb.inline_edit_category(category_id),
-                                  parse_mode='html'
-                                  )
-
-#-----------------------------------------------------------------------------------
-#endregion
-
-
-
-#УДАЛЕНИЕ КАТЕГОРИИ
-#region
-#-----------------------------------------------------------------------------------
-#          /start/{название словаря}/редактировать словарь/удалить словарь
-#-----------------------------------------------------------------------------------
-
-
-@router.callback_query(F.data.startswith('del cat'))
-async def del_category(callback: CallbackQuery):
-    user_id = callback.from_user.id
-
-    category_id = callback.data.split('_')[1]
-    name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
-    await callback.message.edit_text(f'Вы точно хотите удалить категорию {name_category}?',
-                                  reply_markup= await kb.inline_confirm_del_category(category_id))
-
-#Получение подтверждения
-@router.callback_query(F.data.startswith('confirm del cat'))
-async def confirm_del_category(callback: CallbackQuery):
-    user_id = callback.from_user.id
-
-    category_id = callback.data.split('_')[1]
-    name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
-    user_dict_id = (await rq.get_id_user_dict_by_id_category(user_id, category_id)).first()
-    name_user_dict = (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
-    await rq.delete_category(user_id, category_id)
-    await callback.message.edit_text(f"Категория <b>{name_category}</b> удалена",
-                                  parse_mode='html')
-    await callback.message.answer(f'Словарь <b>{name_user_dict}</b>',
-                                  reply_markup=await kb.inline_categories(user_id, user_dict_id ),
-                                  parse_mode='html')
-
-#-----------------------------------------------------------------------------------
-#endregion
-
-
-#endregion
-
-
-
-
-####################################################################################
-
-#                              РАБОТА СО СЛОВАМИ
-
-####################################################################################
-#region WORDS
 
 
 #ДОБАВЛЕНИЕ НОВОГО СЛОВА В КАТЕГОРИЮ

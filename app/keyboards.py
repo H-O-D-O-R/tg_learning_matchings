@@ -9,10 +9,10 @@ import app.database.requests as rq
 
 #СЛОВАРИ
 
-async def inline_dictionaries(chat_id):
+async def inline_dictionaries(user_id):
     keyboard = InlineKeyboardBuilder()
-    await rq.get_user_dicts(chat_id)
-    for user_dict in await rq.get_user_dicts(chat_id):
+    await rq.get_user_dicts(user_id)
+    for user_dict in await rq.get_user_dicts(user_id):
         keyboard.add(InlineKeyboardButton(text=user_dict.name, callback_data=f'dict_{user_dict.id}'))
     keyboard.add(InlineKeyboardButton(text='Новый словарь', callback_data='add new dict'))
     return keyboard.adjust(2).as_markup()
@@ -37,23 +37,43 @@ async def inline_confirm_del_user_dict(user_dict_id):
 
 #КАТЕГОРИИ
 
-async def inline_categories(chat_id, user_dict_id):
+async def inline_categories(user_dict_id, current_page, num_current_page, cnt_pages):
 
     categories = [[]]
-
-    for category in await rq.get_categories(chat_id, user_dict_id):
+    for id_category, name_category in current_page:
         if len(categories[-1]) == 2:
-            categories.append([])
-        categories[-1].append( InlineKeyboardButton(text=category.name, callback_data=f'cat_{category.id}') )
+            categories.append([]) 
+        categories[-1].append( InlineKeyboardButton(text=name_category, callback_data=f'cat_{id_category}') )
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        *categories,
-        [InlineKeyboardButton(text='Учить слова', callback_data=f'learn all_dict_{user_dict_id}'),
-         InlineKeyboardButton(text='Учить сложные слова', callback_data=f'learn diff_dict_{user_dict_id}')],
+    buttons = []
+
+    if categories:
+        buttons.extend( categories )
+
+    if cnt_pages != 1:
+        if num_current_page == 0:
+            buttons.append( [
+                InlineKeyboardButton(text='Вперёд', callback_data=f'next cat page_{user_dict_id}')
+            ] )
+
+        elif num_current_page == cnt_pages - 1:
+            buttons.append( [
+                InlineKeyboardButton(text='Назад', callback_data=f'previous cat page_{user_dict_id}')
+            ] )
+
+        else:
+            buttons.append( [
+                InlineKeyboardButton(text='Назад', callback_data=f'previous cat page_{user_dict_id}'),
+                InlineKeyboardButton(text='Вперёд', callback_data=f'next cat page_{user_dict_id}')
+            ] )
+
+    buttons.extend([
+        [InlineKeyboardButton(text='Повторять слова', callback_data=f'repeat all_dict_{user_dict_id}')],
         [InlineKeyboardButton(text='Редактировать словарь', callback_data=f'edit dict_{user_dict_id}')],
         [InlineKeyboardButton(text='Назад', callback_data='main')]
     ])
 
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     return keyboard
 
 async def inline_edit_category( category_id ):
@@ -78,7 +98,7 @@ async def inline_confirm_del_category(category_id):
 
 #СЛОВА
 
-async def inline_words(chat_id, category_id, user_dict_id, current_page, cnt_pages, is_not_empty, less_name=False, less_matching=False, less_common_words=0):
+async def inline_words(user_id, category_id, user_dict_id, current_page, cnt_pages, is_not_empty, less_name=False, less_matching=False, less_common_words=0):
     
     buttons = []
 
@@ -99,7 +119,7 @@ async def inline_words(chat_id, category_id, user_dict_id, current_page, cnt_pag
                         InlineKeyboardButton(text='Вперёд', callback_data= f'next page_{category_id}' )
                 ])
 
-        name, matching = (await rq.get_name_and_matching_user_dict_by_id(chat_id, user_dict_id)).first()
+        name, matching = (await rq.get_name_and_matching_user_dict_by_id(user_id, user_dict_id)).first()
         
         if less_name == less_matching == False:
             buttons.append([
