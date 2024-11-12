@@ -13,7 +13,7 @@ from app.database.models import async_main
 
 async def main():
     await async_main()
-#    session = AiohttpSession(proxy='http://proxy.server:3128')
+#    session = AiohttpSession(proxy='http://proxy.server:3128')     # Для вывода на сервер PythonAnywhere
 #    bot = Bot(token=TOKEN, session=session)
     bot = Bot(token=TOKEN)
     dp = Dispatcher()

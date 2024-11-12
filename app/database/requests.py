@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 
 
 
+
 #Проверка новый ли пользователь
 async def is_new_user(user_id):
 
@@ -53,7 +54,7 @@ async def get_name_user_dict_by_id(user_id, user_dict_id):
 #Получение названия словаря по его id его категории
 async def get_name_user_dict_by_id_category(user_id, category_id):
 
-    user_dict_id = (await get_id_user_dict_by_id_category(category_id)).first()
+    user_dict_id = (await get_id_user_dict_by_id_category(user_id, category_id)).first()
     return await get_name_user_dict_by_id(user_dict_id)
 
 #Получение названия словаря и соответствия по его id
@@ -242,10 +243,12 @@ async def get_common_words_by_dict(user_id, user_dict_id):
     user_session = await get_user_database(user_id)
 
     async with user_session() as session:
+
         categories_id = [
             category_id for category_id
             in await get_categories_id_by_user_dict_id(user_dict_id)
                          ]
+        
         return await session.scalars(
             select(Item)
             .where(
@@ -260,10 +263,12 @@ async def get_difficult_words_by_dict(user_id, user_dict_id):
     user_session = await get_user_database(user_id)
 
     async with user_session() as session:
+
         categories_id = [
             category_id for category_id
             in await get_categories_id_by_user_dict_id(user_dict_id)
                          ]
+        
         return await session.scalars(
             select(Item)
             .where(
@@ -293,6 +298,8 @@ async def add_new_word(user_id, category_id, name:str, matching:str):
 
 #Запись новых слов
 async def add_new_words(user_id, category_id, words_data):
+    
+    # Получение уникальных слов из категории
     names = { name for name in await get_words_by_category_without_matching(user_id, category_id) }
     items = []
 
@@ -300,6 +307,8 @@ async def add_new_words(user_id, category_id, words_data):
 
     incorrect_flag = False
     ununique_flag = False
+
+    # Проверка и добавление уникальных и корректных слов
     for name, matching in words_data:
         if name not in names:
             if '  -  ' in name or '  -  ' in matching or name.endswith('  -') or name.endswith('  - ') or matching.startswith('-  ') or matching.startswith(' -  '):
@@ -317,6 +326,7 @@ async def add_new_words(user_id, category_id, words_data):
         else:
             ununique_flag = True
 
+    # Составляем сообщение об исключениях
     extra_words = ''
     if incorrect_flag:
         extra_words = extra_words + '\nДобавлены только корректные слова'
@@ -376,7 +386,6 @@ async def set_new_level_difficulty_word(user_id, name, level_difficulty, categor
             .values(level_difficulty=level_difficulty)
         )
         await session.commit()
-
 
 #получить соответствие по слову и id категории
 async def get_matching_by_name_and_category_id(user_id, name, category_id):
