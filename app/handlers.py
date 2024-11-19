@@ -96,7 +96,7 @@ class RegistationNewWords(StatesGroup):
 #region DICTIONARIES
 
 
-# Выводы словарей
+#ВЫВОД ПОЛЬЗОВАТЕЛЬСКИХ СЛОВАРЕЙ
 #region OUTPUT DICTIONARIES
 
 
@@ -196,7 +196,6 @@ async def previous_user_dicts_page(callback: CallbackQuery, state: FSMContext):
     await display_user_dicts(callback, state)
 
 #endregion
-
 
 
 
@@ -458,7 +457,6 @@ async def previous_categories_page(callback: CallbackQuery, state: FSMContext):
 
 #-----------------------------------------------------------------------------------
 #endregion
-
 
 
 
@@ -1365,6 +1363,7 @@ async def confirm_del_word(callback: CallbackQuery, state: FSMContext):
 #                 /start/{название словаря}/учить слова или сложные слова
 #-----------------------------------------------------------------------------------
 
+
 # Обработка списка обычных слов
 @router.callback_query(F.data.startswith('learn all'))
 async def list_of_common_words(callback: CallbackQuery, state: FSMContext):
@@ -1382,7 +1381,7 @@ async def list_of_common_words(callback: CallbackQuery, state: FSMContext):
     # Формирование списка слов и перемешивание
     words = []
     for word in await rq.get_common_words_by_categories_id(user_id, categories_id):
-        words.append({'name': word.name, 'matching': word.matching, 'level_difficulty': 0})
+        words.append({'id': word.id, 'name': word.name, 'matching': word.matching, 'level_difficulty': 0})
     shuffle(words)
 
     # Очистка и обновление состояния с добавлением данных
@@ -1392,6 +1391,7 @@ async def list_of_common_words(callback: CallbackQuery, state: FSMContext):
     await state.update_data(categories_id=categories_id, user_dict_id=user_dict_id, words=words)
 
     await list_of_difficult_words(callback, state, True)
+
 
 # Обработка списка сложных слов
 @router.callback_query(F.data.startswith('learn diff'))
@@ -1420,7 +1420,7 @@ async def list_of_difficult_words(callback: CallbackQuery, state: FSMContext, is
     # Формирование списка сложных слов по уровням сложности
     difficult_words = {1: [], 2: [], 3: []}
     for word in await rq.get_difficult_words_by_categories_id(user_id, categories_id):
-        difficult_words[word.level_difficulty].append((word.name, word.matching))
+        difficult_words[word.level_difficulty].append((word.id, word.name, word.matching))
 
     # Перемешивание и создание очередности сложных слов
     tasks = []
@@ -1428,11 +1428,11 @@ async def list_of_difficult_words(callback: CallbackQuery, state: FSMContext, is
     for level in range(1, 4):
         shuffle(difficult_words[level])
         for word in difficult_words[level]:
-            tasks.append(set_level_difficulty(user_id, {'name': word[0], 'matching': word[1], 'level_difficulty': level},
+            tasks.append(set_level_difficulty(user_id, {'id': word[0], 'name': word[1], 'matching': word[2], 'level_difficulty': level},
                                               order_difficult_words, categories_id))
     await asyncio.gather(*tasks)
 
-    await state.update_data(order_difficult_words=order_difficult_words, difficult_words=difficult_words)
+    await state.update_data(order_difficult_words=order_difficult_words)
     await give_word(callback.message, state)
 
 
@@ -1503,8 +1503,9 @@ async def get_name(message: Message, state: FSMContext):
         # Обновление уровня сложности слова, если ответ неверный или слово сложное
         if (not is_correct_answer) or (word['level_difficulty'] != 0):
             await set_level_difficulty(user_id, word, order_difficult_words, data['categories_id'], is_correct_answer)
-
+        
         await give_word(message, state)
+
     else:
         await state.clear()
         await message.answer('Ты большой молодец!')

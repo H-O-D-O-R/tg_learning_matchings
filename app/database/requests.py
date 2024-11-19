@@ -3,7 +3,7 @@ from app.database.user_models import get_user_database
 from app.database.models import User
 from app.database.user_models import UserDict, Category, Item
 from sqlalchemy import select, update
-
+from datetime import date
 
 
 
@@ -288,10 +288,14 @@ async def add_new_word(user_id, category_id, name:str, matching:str):
         session.add(
             Item(
                 name=name,
-                 matching=matching,
-                 category_id=category_id,
-                 level_difficulty=0
-                 )
+                matching=matching,
+                category_id=category_id,
+                level_difficulty=0,
+                last_date_answer = date.today(),
+                is_repeating = 0,
+                date_for_repeat = date.today(),
+                repeating_interval = 0
+                )
             )
         await session.commit()
     return ''
@@ -319,7 +323,11 @@ async def add_new_words(user_id, category_id, words_data):
                     name=name,
                     matching=matching,
                     category_id=category_id,
-                    level_difficulty=0
+                    level_difficulty=0,
+                    last_date_answer = date.today(),
+                    is_repeating = 0,
+                    date_for_repeat = date.today(),
+                    repeating_interval = 0
                 )
             )
             names.add(name)
