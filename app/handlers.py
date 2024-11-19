@@ -30,6 +30,13 @@ class RegistationNewCat(StatesGroup):
     name = State()         # Ожидание имени категории
 
 
+# Состояния для переключения страниц словарей
+class UserDictsPages(StatesGroup):
+    check = State()        # Флаг для проверки является ли нынешнее состояние листанием страниц словарей
+    current_page = 0       # Индекс текущей страницы для отображения
+    pages = []             # Список страниц словарей, содержащих по 10 словарей
+
+
 # Состояния для переключения страниц категорий
 class CategorisePages(StatesGroup):
     check = State()        # Флаг для проверки является ли нынешнее состояние листанием страниц категорий
@@ -80,51 +87,6 @@ class RegistationNewWords(StatesGroup):
 #endregion
 
 
-# Выводы словарей
-#region OUTPUT DICTIONARIES
-
-# Обработчик команды /start
-@router.message(CommandStart())
-async def cmd_start(message: Message):
-
-    # Получение ID пользователя, инициировавшего запрос
-    user_id = message.from_user.id
-
-    # Проверка, является ли пользователь новым
-    if not (await rq.is_new_user(user_id)).first():
-        user_name = message.from_user.username
-
-        # Создание базы данных для нового пользователя
-        await user_md.create_user_database(user_id)
-        await rq.add_new_user(user_name, user_id)
-
-    # Отправка пользователю списка словарей для выбора
-    await message.answer('Выбери словарь:', reply_markup=await kb.inline_dictionaries(user_id))
-
-
-# Функция для вывода списка словарей пользователю
-# Аналогична cmd_start, но вызывается не новым пользователем однозначно
-async def main(message: Message):
-
-    # Получение ID пользователя, инициировавшего запрос
-    user_id = message.from_user.id
-
-    await message.answer('Выбери словарь:', reply_markup=await kb.inline_dictionaries(user_id))
-
-
-# Функция для вывода списка словарей пользователю
-# Аналогична предыдущим, но вызывается с callback
-@router.callback_query(F.data == 'main')
-async def cmd_start_for_callback(callback: CallbackQuery):
-
-    # Получение ID пользователя, инициировавшего запрос
-    user_id = callback.from_user.id
-
-    await callback.message.edit_text('Выбери словарь:', reply_markup=await kb.inline_dictionaries(user_id))
-
-
-#endregion
-
 
 ####################################################################################
 
@@ -132,6 +94,110 @@ async def cmd_start_for_callback(callback: CallbackQuery):
 
 ####################################################################################
 #region DICTIONARIES
+
+
+# Выводы словарей
+#region OUTPUT DICTIONARIES
+
+
+# Создание страниц словарей для отображения
+async def base_for_display_user_dicts(user_id: int, state: FSMContext):
+
+    pages = [[]]
+    # Разбивка категорий на страницы по 10 элементов
+    for item in await rq.get_user_dicts(user_id):
+        if len(pages[-1]) == 10:
+            pages.append([])
+        pages[-1].append((item.id, item.name))
+    
+    # Установка состояния и сохранение текущей страницы
+    await state.set_state(UserDictsPages.check)
+    await state.update_data(pages=pages)
+    await state.update_data(current_page=0)
+
+
+# Обработчик команды /start
+@router.message(CommandStart())
+async def cmd_start(message: Message, state: FSMContext, new_user: bool=True):
+
+    # Получение ID пользователя, инициировавшего запрос
+    user_id = message.from_user.id
+
+    # Проверка, является ли пользователь новым
+    if new_user and not (await rq.is_new_user(user_id)).first():
+        user_name = message.from_user.username
+
+        # Создание базы данных для нового пользователя
+        await user_md.create_user_database(user_id)
+        await rq.add_new_user(user_name, user_id)
+
+    # Отправка пользователю списка словарей для выбора
+
+    if await state.get_state() != CategorisePages.check:
+        await state.clear()
+        await base_for_display_user_dicts(user_id, state)
+    
+    #Получение данных для выводы страниц словарей
+    data = await state.get_data()
+    pages = data['pages']
+    current_page = data['current_page']
+
+    await message.answer(
+        f'Выбери словарь:',
+        reply_markup=await kb.inline_dictionaries(pages[current_page], current_page, len(pages)),
+        parse_mode='html'
+    )
+
+
+# Функция для вывода списка словарей пользователю
+# Аналогична предыдущей, но вызывается с callback
+# Отображение словарей
+@router.callback_query(F.data == 'main')
+async def display_user_dicts(callback: CallbackQuery, state: FSMContext):
+
+    user_id = callback.from_user.id
+
+    # Инициализация состояния при первом вызове
+    if await state.get_state() != UserDictsPages.check:
+        await state.clear()
+        await base_for_display_user_dicts(user_id, state)
+    
+    #Получение данных для выводы страниц категорий
+    data = await state.get_data()
+    pages = data['pages']
+    current_page = data['current_page']
+
+    await callback.message.edit_text(
+        f'Выбери словарь:',
+        reply_markup=await kb.inline_dictionaries(pages[current_page], current_page, len(pages)),
+        parse_mode='html'
+    )
+
+
+# Переход к следующей странице словарей
+@router.callback_query(F.data.startswith('next dict page'))
+async def next_user_dicts_page(callback: CallbackQuery, state: FSMContext):
+
+    #Увеличили индекс страницы на единицу. Функция не будет доступна, если индекс максимален
+    data = await state.get_data()
+    await state.update_data(current_page=data['current_page'] + 1)
+
+    await display_user_dicts(callback, state)
+
+
+# Переход к предыдущей странице словарей
+@router.callback_query(F.data.startswith('previous dict page'))
+async def previous_user_dicts_page(callback: CallbackQuery, state: FSMContext):
+
+    #Уменьшили индекс страницы на единицу. Функция не будет доступна, если индекс равен 0
+    data = await state.get_data()
+    await state.update_data(current_page=data['current_page'] - 1)
+
+    await display_user_dicts(callback, state)
+
+#endregion
+
+
 
 
 #СОЗДАНИЕ НОВОГО СЛОВАРЯ
@@ -166,7 +232,7 @@ async def set_name_dict(message: Message, state: FSMContext):
 
     # Проверка, отменил ли пользователь создание нового словаря
     if message.text == 'ОТМЕНА':
-        return await main(message)  # Возврат к выбору словаря
+        return await cmd_start(message, state, new_user=False)  # Возврат к выбору словаря
 
     # Установка нового состояния для ввода соответствия словаря
     await state.set_state(RegistationNewDict.matching)
@@ -185,7 +251,7 @@ async def set_matching_dict(message: Message, state: FSMContext):
 
     # Проверка, отменил ли пользователь создание нового словаря
     if message.text == 'ОТМЕНА':
-        return await main(message)  # Возврат к выбору словаря
+        return await cmd_start(message, state, new_user=False)  # Возврат к выбору словаря
 
     # Сохранение введенного соответствия словаря в контексте состояния FSM
     await state.update_data(matching=message.text)
@@ -205,7 +271,7 @@ async def set_matching_dict(message: Message, state: FSMContext):
     user_dict_id = (await rq.get_id_user_dict_by_name(user_id, name_user_dict)).first()
 
     await message.answer(f'Словарь <b>{name_user_dict}</b>',
-                         reply_markup=await kb.inline_categories(user_id, user_dict_id),
+                         reply_markup=await kb.inline_categories(user_dict_id, [], 0, 1, ),
                          parse_mode='html')
 
 
@@ -273,7 +339,7 @@ async def del_user_dict(callback: CallbackQuery):
 
 # Обработчик для подтверждения удаления словаря
 @router.callback_query(F.data.startswith('confirm del dict'))
-async def confirm_del_user_dict(callback: CallbackQuery):
+async def confirm_del_user_dict(callback: CallbackQuery, state: FSMContext):
 
     #ПРИМЕР ВХОДНЫХ ДАННЫХ
     #callback.data = "confirm del dict_{user_dict_id}"
@@ -289,7 +355,7 @@ async def confirm_del_user_dict(callback: CallbackQuery):
     # Подтверждение пользователю об успешном удалении словаря
     await callback.message.edit_text(f"Словарь <b>{name_user_dict}</b> удалён", parse_mode='html')
 
-    await callback.message.answer('Выбери словарь:', reply_markup=await kb.inline_dictionaries(user_id))
+    await display_user_dicts(callback, state)
 
 
 #-----------------------------------------------------------------------------------
@@ -570,7 +636,7 @@ async def confirm_del_category(callback: CallbackQuery):
 
     await callback.message.answer(
         f'Словарь <b>{name_user_dict}</b>',
-        reply_markup=await kb.inline_categories(user_id, user_dict_id),
+        reply_markup=await kb.inline_categories(user_dict_id, [], 0, 1),
         parse_mode='html'
     )
 
@@ -1416,7 +1482,7 @@ async def give_word(message: Message, state: FSMContext):
         extra_words = f'категории <b>{name_user_dict}</b>' if len(categories_id) == 1 else f'словаря <b>{name_user_dict}</b>'
         await message.answer(f'Поздравляю! Ты выучил слова {extra_words}', parse_mode='html')
         await message.answer(f'Словарь <b>{name_user_dict}</b>',
-                             reply_markup=await kb.inline_categories(user_id, user_dict_id),
+                             reply_markup=await kb.inline_categories(user_dict_id, [], 0, 1),
                              parse_mode='html')
 
 
@@ -1445,7 +1511,7 @@ async def get_name(message: Message, state: FSMContext):
 
         name_user_dict = (await rq.get_name_user_dict_by_id(user_id, data['user_dict_id'])).first()
         await message.answer(f'Словарь <b>{name_user_dict}</b>',
-                             reply_markup=await kb.inline_categories(user_id, data['user_dict_id']),
+                             reply_markup=await kb.inline_categories(data['user_dict_id'], [], 0, 1),
                              parse_mode='html')
 
 

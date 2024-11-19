@@ -10,18 +10,38 @@ import app.database.requests as rq
 # СЛОВАРИ
 
 # Формирование клавиатуры для выбора словаря
-async def inline_dictionaries(user_id):
+async def inline_dictionaries(current_page, num_current_page, cnt_pages):
 
-    keyboard = InlineKeyboardBuilder()
+    dicts = [[]]
 
-    # Получаем все словари пользователя и добавляем их как кнопки
-    for user_dict in await rq.get_user_dicts(user_id):
-        keyboard.add(InlineKeyboardButton(text=user_dict.name, callback_data=f'dict_{user_dict.id}'))
+    # Формируем кнопки для словарей по 2 в ряд
+    for user_dict_id, name_user_dict in current_page:
+        if len(dicts[-1]) == 2:
+            dicts.append([])
+        dicts[-1].append(InlineKeyboardButton(text=name_user_dict, callback_data=f'dict_{user_dict_id}'))
 
-    # Кнопка для создания нового словаря
-    keyboard.add(InlineKeyboardButton(text='Новый словарь', callback_data='add new dict'))
+    buttons = []
+    if dicts:
+        buttons.extend(dicts)
 
-    return keyboard.adjust(2).as_markup()
+    # Добавляем кнопки для навигации между страницами категорий, если страниц больше одной
+    if cnt_pages != 1:
+        if num_current_page == 0:
+            buttons.append([InlineKeyboardButton(text='Вперёд', callback_data=f'next dict page')])
+        elif num_current_page == cnt_pages - 1:
+            buttons.append([InlineKeyboardButton(text='Назад', callback_data=f'previous dict page')])
+        else:
+            buttons.append([
+                InlineKeyboardButton(text='Назад', callback_data=f'previous dict page'),
+                InlineKeyboardButton(text='Вперёд', callback_data=f'next dict page')
+            ])
+
+    # Добавляем кнопку для создания новго словаря
+    buttons.append([
+        InlineKeyboardButton(text='Новый словарь', callback_data='add new dict')
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 # Клавиатура для редактирования словаря
