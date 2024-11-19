@@ -800,6 +800,7 @@ async def discard_name(callback: CallbackQuery, state: FSMContext):
     await state.update_data(less_name=True)
     await display_words(callback, state)
 
+
 # Удалить соответствие из отображения категории, оставить только изучаемые слова
 @router.callback_query(F.data.startswith('discard matching'))
 async def discard_matching(callback: CallbackQuery, state: FSMContext):
@@ -932,21 +933,26 @@ async def shuffle_words(callback: CallbackQuery, state: FSMContext):
     shuffle(items)
 
     new_line = '\n'
-    await callback.message.edit_text(
-        f"{first_line}\n\n{new_line.join(item for item in items)}",
-        reply_markup=await kb.inline_words(
-            user_id=user_id,
-            category_id=category_id,
-            user_dict_id=(await rq.get_id_user_dict_by_id_category(user_id, category_id)).first(),
-            current_page=current_page,
-            cnt_pages=len(pages),
-            is_not_empty=bool(pages[0] if pages else False),
-            less_name=less_name,
-            less_matching=less_matching,
-            less_common_words=less_common_words
-        ),
-        parse_mode='html'
-    )
+
+    new_content = f"{first_line}\n\n{new_line.join(items)}"
+
+    if new_content != callback.message.text:
+        await callback.message.edit_text(
+            new_content,
+            reply_markup=await kb.inline_words(
+                user_id=user_id,
+                category_id=category_id,
+                user_dict_id=(await rq.get_id_user_dict_by_id_category(user_id, category_id)).first(),
+                current_page=current_page,
+                cnt_pages=len(pages),
+                is_not_empty=bool(pages[0] if pages else False),
+                less_name=less_name,
+                less_matching=less_matching,
+                less_common_words=less_common_words
+            ),
+            parse_mode='html'
+        )
+
 
 
 #-----------------------------------------------------------------------------------
@@ -1503,7 +1509,7 @@ async def get_name(message: Message, state: FSMContext):
         # Обновление уровня сложности слова, если ответ неверный или слово сложное
         if (not is_correct_answer) or (word['level_difficulty'] != 0):
             await set_level_difficulty(user_id, word, order_difficult_words, data['categories_id'], is_correct_answer)
-        
+
         await give_word(message, state)
 
     else:
