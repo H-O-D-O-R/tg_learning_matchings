@@ -1498,9 +1498,7 @@ async def give_word(message: Message, state: FSMContext):
         name_user_dict = (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
         extra_words = f'категории <b>{name_user_dict}</b>' if len(categories_id) == 1 else f'словаря <b>{name_user_dict}</b>'
         await message.answer(f'Поздравляю! Ты выучил слова {extra_words}', parse_mode='html')
-        await message.answer(f'Словарь <b>{name_user_dict}</b>',
-                             reply_markup=await kb.inline_categories(user_dict_id, [], 0, 1),
-                             parse_mode='html')
+        await cmd_start(message, state, new_user=False)
 
 
 # Проверка правильности перевода
@@ -1527,10 +1525,7 @@ async def get_name(message: Message, state: FSMContext):
         await state.clear()
         await message.answer('Ты большой молодец!')
 
-        name_user_dict = (await rq.get_name_user_dict_by_id(user_id, data['user_dict_id'])).first()
-        await message.answer(f'Словарь <b>{name_user_dict}</b>',
-                             reply_markup=await kb.inline_categories(data['user_dict_id'], [], 0, 1),
-                             parse_mode='html')
+        await cmd_start(message, state, new_user=False)
 
 
 #-----------------------------------------------------------------------------------
