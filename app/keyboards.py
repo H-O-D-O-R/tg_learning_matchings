@@ -144,16 +144,17 @@ async def inline_words(user_id, category_id, user_dict_id, current_page, cnt_pag
     buttons = []
 
     # Добавляем кнопки навигации между страницами, если есть несколько страниц
-    if is_not_empty and cnt_pages != 1:
-        if current_page == 0:
-            buttons.append([InlineKeyboardButton(text='Вперёд', callback_data=f'next page_{category_id}')])
-        elif current_page == cnt_pages - 1:
-            buttons.append([InlineKeyboardButton(text='Назад', callback_data=f'previous page_{category_id}')])
-        else:
-            buttons.append([
-                InlineKeyboardButton(text='Назад', callback_data=f'previous page_{category_id}'),
-                InlineKeyboardButton(text='Вперёд', callback_data=f'next page_{category_id}')
-            ])
+    if is_not_empty:
+        if cnt_pages != 1:
+            if current_page == 0:
+                buttons.append([InlineKeyboardButton(text='Вперёд', callback_data=f'next page_{category_id}')])
+            elif current_page == cnt_pages - 1:
+                buttons.append([InlineKeyboardButton(text='Назад', callback_data=f'previous page_{category_id}')])
+            else:
+                buttons.append([
+                    InlineKeyboardButton(text='Назад', callback_data=f'previous page_{category_id}'),
+                    InlineKeyboardButton(text='Вперёд', callback_data=f'next page_{category_id}')
+                ])
 
         # Определяем, какие кнопки отображать: скрыть или вернуть слова/соответствия, и добавляем их
         name, matching = (await rq.get_name_and_matching_user_dict_by_id(user_id, user_dict_id)).first()
