@@ -1477,7 +1477,18 @@ async def give_word(message: Message, state: FSMContext):
     categories_id = data['categories_id']
     user_dict_id = data['user_dict_id']
 
-    word = (order_difficult_words.pop(0) if order_difficult_words else None) or (words.pop(0) if words else None)
+    word = False
+    if order_difficult_words:
+        word = order_difficult_words.pop(0)
+        if word is None:
+            if words:
+                word = words.pop(0)
+            else:
+                while word is None:
+                    word = order_difficult_words.pop(0)
+    elif words:
+        word = words.pop(0)
+        
 
     if word:
         await message.answer(word['matching'], reply_markup=await kb.reply_learn_word())
