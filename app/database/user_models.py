@@ -1,7 +1,7 @@
-from sqlalchemy import Text, ForeignKey, Integer
+from sqlalchemy import Text, ForeignKey, Integer, Date, DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
-
+from datetime import date, datetime
 
 class Base(AsyncAttrs, DeclarativeBase):
     pass
@@ -36,6 +36,10 @@ class Item(Base):
     matching: Mapped[str] = mapped_column(Text)
     level_difficulty: Mapped[int] = mapped_column(Integer)
     category_id: Mapped[int] = mapped_column(ForeignKey('categories.id'))
+    last_date_answer: Mapped[date] = mapped_column(Date)
+    is_repeating: Mapped[int] = mapped_column(Integer)
+    date_for_repeat: Mapped[date] = mapped_column(Date)
+    repeating_interval: Mapped[int] = mapped_column(Integer)
 
     category = relationship("Category", back_populates="items")
 
