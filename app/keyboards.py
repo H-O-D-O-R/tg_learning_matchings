@@ -174,6 +174,11 @@ async def inline_words(user_id, category_id, user_dict_id, current_page, cnt_pag
                                  callback_data=(f'return common_{category_id}' if less_common_words else f'discard common_{category_id}')),
             InlineKeyboardButton(text='Перемешать слова', callback_data=f'shuffle_{category_id}')
         ])
+    elif less_common_words:
+        buttons.append([
+            InlineKeyboardButton(text="Вернуть простые слова", 
+                                 callback_data=(f'return common_{category_id}'))
+        ])
 
     # Добавляем кнопки для изучения слов и возврата к редактированию категории
     if is_not_empty:
