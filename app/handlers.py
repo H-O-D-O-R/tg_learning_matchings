@@ -8,10 +8,13 @@ from io import StringIO, BytesIO                    # Для добавлени�
 from openpyxl import load_workbook                  # в категорию при помощи файла
 
 from random import shuffle                          #Перемешивание слов, чтобы меньше работала зрительная память
+from datetime import date, timedelta
 
 import app.keyboards as kb
 import app.database.requests as rq
 import app.database.user_models as user_md
+
+
 
 router = Router()
 
@@ -1501,6 +1504,41 @@ async def give_word(message: Message, state: FSMContext):
         await cmd_start(message, state, new_user=False)
 
 
+# Измененение дальнейшего повторения слова
+async def set_new_data_for_repeat(user_id, word_id, is_correct_answer):
+    word = (await rq.get_data_word_by_id(user_id, word_id) ).first()
+
+    is_repeating = word.is_repeating
+    date_for_repeat = word.date_for_repeat
+    repeating_interval = word.repeating_interval
+
+    if is_correct_answer:
+        if is_repeating:
+            today = date.today()
+            await rq.word_was_answered_today(user_id, word_id, today)
+
+            if date_for_repeat <= today:
+                repeating_interval = min(repeating_interval * 2, 32)
+
+            new_date_answer = today + timedelta(days=repeating_interval)
+            await rq.set_new_date_answer(user_id, word_id, new_date_answer, repeating_interval)
+    else:
+        if is_repeating:
+            today = date.today()
+            await rq.word_was_answered_today(user_id, word_id, today)
+
+            if date_for_repeat <= today:
+                repeating_interval = max(repeating_interval // 2, 1)
+                
+            new_date_answer = today + timedelta(days=repeating_interval) 
+            await rq.set_new_date_answer(user_id, word_id, new_date_answer, repeating_interval)
+
+        else:
+            today = date.today()
+            new_date_answer = today + timedelta(days=1) 
+            await rq.make_word_repeating(user_id, word_id, today, new_date_answer)
+
+
 # Проверка правильности перевода
 @router.message(LearnWords.name)
 async def get_name(message: Message, state: FSMContext):
@@ -1518,6 +1556,8 @@ async def get_name(message: Message, state: FSMContext):
         # Обновление уровня сложности слова, если ответ неверный или слово сложное
         if (not is_correct_answer) or (word['level_difficulty'] != 0):
             await set_level_difficulty(user_id, word, order_difficult_words, data['categories_id'], is_correct_answer)
+
+        await set_new_data_for_repeat(user_id, word['id'], is_correct_answer)
 
         await give_word(message, state)
 

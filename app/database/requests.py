@@ -3,7 +3,7 @@ from app.database.user_models import get_user_database
 from app.database.models import User
 from app.database.user_models import UserDict, Category, Item
 from sqlalchemy import select, update
-from datetime import date
+from datetime import date, timedelta
 
 
 
@@ -277,6 +277,16 @@ async def get_difficult_words_by_dict(user_id, user_dict_id):
                    )
                                     )
 
+#Получение данных слова по его id
+async def get_data_word_by_id(user_id, word_id):
+    user_session = await get_user_database(user_id)
+
+    async with user_session() as session:
+        return await session.scalars(
+            select(Item)
+            .where(Item.id == word_id)
+            )
+
 #Запись нового слова
 async def add_new_word(user_id, category_id, name:str, matching:str):
     if '  -  ' in name or '  -  ' in matching or name.endswith('  -') or name.endswith('  - ') or matching.startswith('-  ') or matching.startswith(' -  '):
@@ -293,7 +303,7 @@ async def add_new_word(user_id, category_id, name:str, matching:str):
                 level_difficulty=0,
                 last_date_answer = date.today(),
                 is_repeating = 0,
-                date_for_repeat = date.today(),
+                date_for_repeat = date.today() + timedelta(days=1),
                 repeating_interval = 0
                 )
             )
@@ -326,7 +336,7 @@ async def add_new_words(user_id, category_id, words_data):
                     level_difficulty=0,
                     last_date_answer = date.today(),
                     is_repeating = 0,
-                    date_for_repeat = date.today(),
+                    date_for_repeat = date.today() + timedelta(days=1),
                     repeating_interval = 0
                 )
             )
@@ -383,7 +393,7 @@ async def delete_word(user_id, word_id):
             await session.delete(word)
             await session.commit()
 
-#поменять уровень слодности слова
+#поменять уровень сложности слова
 async def set_new_level_difficulty_word(user_id, name, level_difficulty, categories_id):
     user_session = await get_user_database(user_id)
 
@@ -435,3 +445,47 @@ async def check_word_in_category(user_id, name_word, category_id):
                         (Item.category_id == category_id)
             )
         )
+
+#Отметить что слово отвечалось сегодня
+async def word_was_answered_today(user_id, word_id, today):
+    user_session = await get_user_database(user_id)
+
+    async with user_session() as session:
+        await session.execute(
+            update(Item)
+            .where(Item.id == word_id )
+            .values(last_date_answer =today)
+        )
+        await session.commit()
+
+#Установить новую дату повтора слова
+async def set_new_date_answer(user_id, word_id, new_date_answer, repeating_interval):
+    user_session = await get_user_database(user_id)
+
+    async with user_session() as session:
+        await session.execute(
+            update(Item)
+            .where(Item.id == word_id )
+            .values(
+                date_for_repeat = new_date_answer,
+                repeating_interval = repeating_interval
+                )
+        )
+        await session.commit()
+
+#Сделать слово повторяемым
+async def make_word_repeating(user_id, word_id, today, new_date_answer):
+    user_session = await get_user_database(user_id)
+
+    async with user_session() as session:
+        await session.execute(
+            update(Item)
+            .where( Item.id == word_id )
+            .values(
+                last_date_answer= today,
+                is_repeating = 1,
+                date_for_repeat = new_date_answer,
+                repeating_interval = 1
+                )
+        )
+        await session.commit()
