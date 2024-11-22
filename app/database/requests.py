@@ -314,7 +314,7 @@ async def add_new_word(user_id, category_id, name:str, matching:str):
 async def add_new_words(user_id, category_id, words_data):
     
     # Получение уникальных слов из категории
-    names = { name for name in await get_words_by_category_without_matching(user_id, category_id) }
+    words = { (word.name, word.matching) for word in await get_words_by_category(user_id, category_id) }
     items = []
 
     user_session = await get_user_database(user_id)
@@ -324,7 +324,7 @@ async def add_new_words(user_id, category_id, words_data):
 
     # Проверка и добавление уникальных и корректных слов
     for name, matching in words_data:
-        if name not in names:
+        if (name, matching) not in words:
             if '  -  ' in name or '  -  ' in matching or name.endswith('  -') or name.endswith('  - ') or matching.startswith('-  ') or matching.startswith(' -  '):
                 incorrect_flag = True
                 continue
@@ -340,7 +340,7 @@ async def add_new_words(user_id, category_id, words_data):
                     repeating_interval = 0
                 )
             )
-            names.add(name)
+            words.add(name)
         else:
             ununique_flag = True
 
@@ -434,7 +434,7 @@ async def get_name_by_matching_and_category_id(user_id, matching, category_id):
             )
 
 #проверка наличия слова в категории
-async def check_word_in_category(user_id, name_word, category_id):
+async def check_word_in_category(user_id, name_word, matching_word, category_id):
     user_session = await get_user_database(user_id)
 
     async with user_session() as session:
@@ -442,7 +442,8 @@ async def check_word_in_category(user_id, name_word, category_id):
             select(Item.id)
             .where(
                 (Item.name == name_word) &
-                        (Item.category_id == category_id)
+                (Item.matching == matching_word) &
+                (Item.category_id == category_id)
             )
         )
 

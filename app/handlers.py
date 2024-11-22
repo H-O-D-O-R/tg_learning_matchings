@@ -1030,17 +1030,7 @@ async def set_name_word(message: Message, state: FSMContext):
             parse_mode='html'
         )
 
-    # Проверка на существование слова в категории
-    if (await rq.check_word_in_category(user_id, message.text, category_id)).first() is not None:
-        await state.clear()
-        name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
-        await message.answer(f'Слово {message.text} уже есть в категории {name_category}')
-        await message.answer(
-            f'Категория <b>{name_category}</b>',
-            reply_markup=await kb.inline_edit_category(category_id),
-            parse_mode='html'
-        )
-        return
+
 
     # Переход к получению перевода
     await state.update_data(name=message.text)
@@ -1059,6 +1049,18 @@ async def set_matching_word(message: Message, state: FSMContext):
     await state.clear()
 
     category_id = data['category_id']
+
+    # Проверка на существование слова в категории
+    if (await rq.check_word_in_category(user_id, data['name'], message.text, category_id)).first() is not None:
+        await state.clear()
+        name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
+        await message.answer(f'Слово {data["name"]} - <i>{message.text}</i> уже есть в категории {name_category}', parse_mode='html')
+        await message.answer(
+            f'Категория <b>{name_category}</b>',
+            reply_markup=await kb.inline_edit_category(category_id),
+            parse_mode='html'
+        )
+        return
 
     # Если пользователь отменяет ввод
     if message.text == 'ОТМЕНА':
