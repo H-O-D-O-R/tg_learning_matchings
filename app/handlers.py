@@ -68,6 +68,7 @@ class RegistationNewItem(StatesGroup):
 class ConfirmDelWord(StatesGroup):
     category_id = ''       # ID категории, из которой удаляется элемент
     name = State()         # Имя элемента, который нужно удалить
+    matching = State()     # Соответствие элемента, который нужно удалить
     confirm = State()      # Подтверждение удаления
 
 
@@ -672,7 +673,7 @@ async def base_for_display_words(user_id, category_id, state):
 
     # Получаем слова категории и перемешиваем их
     items = [
-        (item.name, item.matching)
+        (item.id, item.name, item.matching)
         for item in await rq.get_words_by_category(user_id, category_id)
     ]
     shuffle(items)
@@ -710,7 +711,7 @@ async def text_words(user_id, category_id, pages, page, less_name, less_matching
 
     # Возвращаем текст с отформатированным списком слов категории
     new_line = '\n'
-    return f"Категория <b>{name_category}</b>\n\n{(new_line.join(decorate(item, less_name, less_matching) for item in pages[page]) if pages else 'Здесь пока пусто')}"
+    return f"Категория <b>{name_category}</b>\n\n{(new_line.join(decorate(item[1:], less_name, less_matching) for item in pages[page]) if pages else 'Здесь пока пусто')}"
 
 
 # Обработчик вывода слов категории
@@ -796,7 +797,7 @@ async def discard_name(callback: CallbackQuery, state: FSMContext):
     # Получаем текущие страницы и удаляем слова, оставляя только соответствия
     data = await state.get_data()
     pages = data['pages']
-    pages = [[(item[1],) for item in page] for page in pages]
+    pages = [[(item[0], item[2]) for item in page] for page in pages]
 
     # Обновляем состояние данных и вызываем обновление отображения
     await state.update_data(pages=pages)
@@ -811,7 +812,7 @@ async def discard_matching(callback: CallbackQuery, state: FSMContext):
     # Получаем текущие страницы и удаляем соответствия, оставляя только изучаемые слова
     data = await state.get_data()
     pages = data['pages']
-    pages = [[(item[0],) for item in page] for page in pages]
+    pages = [[(item[0], item[1]) for item in page] for page in pages]
 
     # Обновляем состояние данных и вызываем обновление отображения
     await state.update_data(pages=pages)
@@ -832,7 +833,7 @@ async def return_name(callback: CallbackQuery, state: FSMContext):
     new_pages = []
     for page in pages:
         new_pages.append([
-            ((await rq.get_name_by_matching_and_category_id(user_id, item[0], category_id)).first(), item[0])
+            (item[0], (await rq.get_data_word_by_id(user_id, item[0], 'name')).first(), item[1])
             for item in page
         ])
 
@@ -855,7 +856,7 @@ async def return_matching(callback: CallbackQuery, state: FSMContext):
     new_pages = []
     for page in pages:
         new_pages.append([
-            (item[0], (await rq.get_matching_by_name_and_category_id(user_id, item[0], category_id)).first())
+            (item[0], item[1], (await rq.get_data_word_by_id(user_id, item[0], 'matching')).first())
             for item in page
         ])
 
@@ -879,17 +880,17 @@ async def discard_common(callback: CallbackQuery, state: FSMContext):
     
     if less_name == less_matching:
         items = [
-            (item.name, item.matching)
+            (item.id, item.name, item.matching)
             for item in await rq.get_difficult_words_by_categories_id(user_id, [category_id])
         ]
     elif less_name:
         items = [
-            (item.matching,)
+            (item.id, item.matching)
             for item in await rq.get_difficult_words_by_categories_id(user_id, [category_id])
         ]
     else:
         items = [
-            (item.name,)
+            (item.id, item.name)
             for item in await rq.get_difficult_words_by_categories_id(user_id, [category_id])
         ]
 
@@ -936,8 +937,8 @@ async def shuffle_words(callback: CallbackQuery, state: FSMContext):
 
     if len(lines) >= 4:
         name_category = ' '.join(lines[0].split()[1:])
-        last_item = lines[-1].split('  -  ')
-        items = [item.split('  -  ') for item in lines[2:-1]]
+        items = pages[current_page]
+        last_item = items.pop(-1)
         shuffle(items)
 
         items.insert(0, last_item)
@@ -953,8 +954,7 @@ async def shuffle_words(callback: CallbackQuery, state: FSMContext):
             name = item[0]
             return name
 
-        new_content = f"Категория <b>{name_category}</b>\n\n{new_line.join(map(lambda item: decorate(item, less_name, less_matching), items))}"
-
+        new_content = f"Категория <b>{name_category}</b>\n\n{(new_line.join(decorate(item[1:], less_name, less_matching) for item in items))}"
         await callback.message.edit_text(
             new_content,
             reply_markup=await kb.inline_words(
@@ -1290,8 +1290,9 @@ async def get_name_word_for_delete(message: Message, state: FSMContext):
     user_id = message.from_user.id
     name_word = message.text
     data = await state.get_data()
-    await state.clear()
     category_id = data['category_id']
+    await state.update_data(name=name_word)
+    await state.set_state(ConfirmDelWord.matching)
 
     # Отмена удаления, возврат к категории
     if name_word == 'ОТМЕНА':
@@ -1303,10 +1304,39 @@ async def get_name_word_for_delete(message: Message, state: FSMContext):
         )
         return
 
-    # Проверка наличия слова в категории
-    if (await rq.check_word_in_category(user_id, name_word, category_id)).first() is None:
+    # Отправка запроса на ввод слова для удаления
+    await message.answer(
+        'Введите соответствие слова',
+        reply_markup=await kb.cancel_delete_word()
+    )
+
+
+
+# Получение соответствия для удаления
+@router.message(ConfirmDelWord.matching)
+async def get_matching_word_for_delete(message: Message, state: FSMContext):
+
+    user_id = message.from_user.id
+    matching_word = message.text
+    data = await state.get_data()
+
+    name_word = data['name']
+    category_id = data['category_id']
+
+    # Отмена удаления, возврат к категории
+    if matching_word == 'ОТМЕНА':
         name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
-        await message.answer(f'Слово {name_word} отсутствует в категории {name_category}')
+        await message.answer(
+            f'Категория <b>{name_category}</b>',
+            reply_markup=await kb.inline_edit_category(category_id),
+            parse_mode='html'
+        )
+        return
+
+    # Проверка наличия слова в категории
+    if (await rq.check_word_in_category(user_id, name_word, matching_word, category_id)).first() is None:
+        name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
+        await message.answer(f'Слово {name_word} - <i>{message.text}</i> отсутствует в категории {name_category}', parse_mode='html')
         await message.answer(
             f'Категория <b>{name_category}</b>',
             reply_markup=await kb.inline_edit_category(category_id),
@@ -1315,11 +1345,13 @@ async def get_name_word_for_delete(message: Message, state: FSMContext):
         return
 
     # Запрос на подтверждение удаления слова
-    word_id = (await rq.get_id_word_by_name(user_id, name_word, category_id)).first()
+    word_id = (await rq.get_id_word_by_name_and_matching(user_id, name_word, matching_word, category_id)).first()
     await message.answer(
-        f'Вы точно хотите удалить слово {name_word}?',
-        reply_markup=await kb.inline_confirm_del_word(word_id, category_id)
+        f'Вы точно хотите удалить слово {name_word} - <i>{message.text}</i>?',
+        reply_markup=await kb.inline_confirm_del_word(word_id, category_id), 
+        parse_mode='html'
     )
+
 
 
 # Подтверждение удаления слова
@@ -1328,7 +1360,7 @@ async def confirm_del_word(callback: CallbackQuery, state: FSMContext):
 
     user_id = callback.from_user.id
     word_id = callback.data.split('_')[1]
-    name_word = (await rq.get_name_word_by_id(user_id, word_id)).first()
+    name_word = (await rq.get_data_word_by_id(user_id, word_id, 'name')).first()
     category_id = callback.data.split('_')[2]
     name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
     user_dict_id = (await rq.get_id_user_dict_by_id_category(user_id, category_id)).first()
@@ -1523,7 +1555,7 @@ async def give_word(message: Message, state: FSMContext):
 
 # Измененение дальнейшего повторения слова
 async def set_new_data_for_repeat(user_id, word_id, is_correct_answer):
-    word = (await rq.get_data_word_by_id(user_id, word_id) ).first()
+    word = (await rq.get_data_word_by_id(user_id, word_id, 'all') ).first()
 
     is_repeating = word.is_repeating
     date_for_repeat = word.date_for_repeat

@@ -278,13 +278,28 @@ async def get_difficult_words_by_dict(user_id, user_dict_id):
                                     )
 
 #Получение данных слова по его id
-async def get_data_word_by_id(user_id, word_id):
+async def get_data_word_by_id(user_id, word_id, key):
     user_session = await get_user_database(user_id)
 
-    async with user_session() as session:
-        return await session.scalars(
-            select(Item)
-            .where(Item.id == word_id)
+    if key == 'all':
+        async with user_session() as session:
+            return await session.scalars(
+                select(Item)
+                .where(Item.id == word_id)
+                )
+        
+    elif key == 'name':
+        async with user_session() as session:
+            return await session.scalars(
+                select(Item.name)
+                .where(Item.id == word_id)
+                )
+        
+    elif key == 'matching':
+        async with user_session() as session:
+            return await session.scalars(
+                select(Item.matching)
+                .where(Item.id == word_id)
             )
 
 #Запись нового слова
@@ -356,8 +371,8 @@ async def add_new_words(user_id, category_id, words_data):
         await session.commit()
     return extra_words
 
-#получение id слова по имени
-async def get_id_word_by_name(user_id, name_word, category_id):
+#получение id слова по имени и соответствию
+async def get_id_word_by_name_and_matching(user_id, name_word, matching_word, category_id):
     user_session = await get_user_database(user_id)
 
     async with user_session() as session:
@@ -365,18 +380,9 @@ async def get_id_word_by_name(user_id, name_word, category_id):
             select(Item.id)
             .where(
                 (Item.name == name_word) &
-                   (Item.category_id == category_id)
-                   )
-                                    )
-
-#получение слова по его id
-async def get_name_word_by_id(user_id, word_id):
-    user_session = await get_user_database(user_id)
-
-    async with user_session() as session:
-        return await session.scalars(
-            select(Item.name)
-            .where(Item.id == word_id)
+                (Item.matching == matching_word) &
+                (Item.category_id == category_id)
+                )
             )
 
 # удалить слово
@@ -404,34 +410,6 @@ async def set_new_level_difficulty_word(user_id, name, level_difficulty, categor
             .values(level_difficulty=level_difficulty)
         )
         await session.commit()
-
-#получить соответствие по слову и id категории
-async def get_matching_by_name_and_category_id(user_id, name, category_id):
-    user_session = await get_user_database(user_id)
-
-    async with user_session() as session:
-
-        return await session.scalars(
-            select(Item.matching)
-            .where(
-                (Item.name == name) &
-                        (Item.category_id == category_id)
-                    )
-            )
-
-#получить слово по соответствию и id категории
-async def get_name_by_matching_and_category_id(user_id, matching, category_id):
-    user_session = await get_user_database(user_id)
-
-    async with user_session() as session:
-
-        return await session.scalars(
-            select(Item.name)
-            .where(
-                (Item.matching == matching) &
-                        (Item.category_id == category_id)
-                    )
-            )
 
 #проверка наличия слова в категории
 async def check_word_in_category(user_id, name_word, matching_word, category_id):
