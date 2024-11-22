@@ -931,15 +931,30 @@ async def shuffle_words(callback: CallbackQuery, state: FSMContext):
     less_common_words = data['less_common_words']
 
     # Перемешиваем строки слов
-    first_line = callback.message.text.split('\n')[0]
-    items = callback.message.text.split('\n')[2:]
-    shuffle(items)
 
-    new_line = '\n'
+    lines = callback.message.text.split('\n')
 
-    new_content = f"{first_line}\n\n{new_line.join(items)}"
+    if len(lines) >= 4:
+        name_category = ' '.join(lines[0].split()[1:])
+        last_item = lines[-1].split('  -  ')
+        items = [item.split('  -  ') for item in lines[2:-1]]
+        shuffle(items)
 
-    if new_content != callback.message.text:
+        items.insert(0, last_item)
+        new_line = '\n'
+
+        def decorate(item, less_name, less_matching):
+            if less_name == less_matching:
+                name, matching = item
+                return f"{name}  -  <i>{matching}</i>"
+            if less_name:
+                matching = item[0]
+                return f"<i>{matching}</i>"
+            name = item[0]
+            return name
+
+        new_content = f"Категория <b>{name_category}</b>\n\n{new_line.join(map(lambda item: decorate(item, less_name, less_matching), items))}"
+
         await callback.message.edit_text(
             new_content,
             reply_markup=await kb.inline_words(
