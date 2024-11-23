@@ -202,6 +202,26 @@ async def get_words_by_category(user_id, category_id):
             .where(Item.category_id == category_id)
             )
 
+#Получние повторяемых слов словаря
+async def get_repeating_words_by_dict(user_id, user_dict_id):
+    user_session = await get_user_database(user_id)
+
+    async with user_session() as session:
+
+        categories_id = {
+            category_id for category_id
+            in await get_categories_id_by_user_dict_id(user_id, user_dict_id)
+        }
+        
+        return await session.scalars(
+            select(Item)
+            .where(
+                (Item.category_id.in_(categories_id)) &
+                   (Item.is_repeating == 1 )
+                   )
+                                    )
+
+
 #Получние слов категории без соответствий
 async def get_words_by_category_without_matching(user_id, category_id):
     user_session = await get_user_database(user_id)
@@ -246,7 +266,7 @@ async def get_common_words_by_dict(user_id, user_dict_id):
 
         categories_id = [
             category_id for category_id
-            in await get_categories_id_by_user_dict_id(user_dict_id)
+            in await get_categories_id_by_user_dict_id(user_id, user_dict_id)
                          ]
         
         return await session.scalars(
@@ -266,7 +286,7 @@ async def get_difficult_words_by_dict(user_id, user_dict_id):
 
         categories_id = [
             category_id for category_id
-            in await get_categories_id_by_user_dict_id(user_dict_id)
+            in await get_categories_id_by_user_dict_id(user_id, user_dict_id)
                          ]
         
         return await session.scalars(

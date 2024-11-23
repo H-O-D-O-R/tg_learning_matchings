@@ -102,6 +102,7 @@ async def inline_categories(user_dict_id, current_page, num_current_page, cnt_pa
 
     # Добавляем кнопки для повтора слов, редактирования категории и возврата к словарям
     buttons.extend([
+        [InlineKeyboardButton(text='Повторяемые слова', callback_data=f'repeating words_{user_dict_id}')],
         [InlineKeyboardButton(text='Повторять слова', callback_data=f'repeat all_dict_{user_dict_id}')],
         [InlineKeyboardButton(text='Редактировать словарь', callback_data=f'edit dict_{user_dict_id}')],
         [InlineKeyboardButton(text='Назад', callback_data='main')]
@@ -189,6 +190,53 @@ async def inline_words(user_id, category_id, user_dict_id, current_page, cnt_pag
     buttons.extend([
         [InlineKeyboardButton(text='Редактировать категорию', callback_data=f'edit cat_{category_id}')],
         [InlineKeyboardButton(text='Назад', callback_data=f'dict_{user_dict_id}')]
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# Формирование клавиатуры для управления списком слов, включая фильтры и навигацию
+async def inline_repeating_words(user_id, user_dict_id, current_page, cnt_pages, is_not_empty, less_name=False, less_matching=False):
+
+    buttons = []
+
+    # Добавляем кнопки навигации между страницами, если есть несколько страниц
+    if is_not_empty:
+        if cnt_pages != 1:
+            if current_page == 0:
+                buttons.append([InlineKeyboardButton(text='Вперёд', callback_data=f'next repeating page_{user_dict_id}')])
+            elif current_page == cnt_pages - 1:
+                buttons.append([InlineKeyboardButton(text='Назад', callback_data=f'previous repeating page_{user_dict_id}')])
+            else:
+                buttons.append([
+                    InlineKeyboardButton(text='Назад', callback_data=f'previous repeating page_{user_dict_id}'),
+                    InlineKeyboardButton(text='Вперёд', callback_data=f'next repeating page_{user_dict_id}')
+                ])
+
+        # Определяем, какие кнопки отображать: скрыть или вернуть слова/соответствия, и добавляем их
+        name, matching = (await rq.get_name_and_matching_user_dict_by_id(user_id, user_dict_id)).first()
+        if not less_name and not less_matching:
+            buttons.append([
+                InlineKeyboardButton(text=f'Убрать {name}', callback_data=f'discard repeating name_{user_dict_id}'),
+                InlineKeyboardButton(text=f'Убрать {matching}', callback_data=f'discard repeating matching_{user_dict_id}')
+            ])
+        elif less_name:
+            buttons.append([InlineKeyboardButton(text=f'Вернуть {name}', callback_data=f'return repeating name_{user_dict_id}')])
+        else:
+            buttons.append([InlineKeyboardButton(text=f'Вернуть {matching}', callback_data=f'return repeating matching_{user_dict_id}')])
+
+        # Кнопка для перемешивания
+        buttons.append([
+            InlineKeyboardButton(text='Перемешать слова', callback_data=f'shuffle repeating_{user_dict_id}')
+        ])
+
+    # Добавляем кнопки для изучения слов и возврата к редактированию категории
+    if is_not_empty:
+        buttons.append([
+            InlineKeyboardButton(text='Повторять слова', callback_data=f'repeat all_dict_{user_dict_id}')
+        ])
+    buttons.append([
+        InlineKeyboardButton(text='Назад', callback_data=f'dict_{user_dict_id}')
     ])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)

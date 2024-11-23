@@ -47,6 +47,14 @@ class CategorisePages(StatesGroup):
     pages = []             # Список страниц категорий, содержащих по 10 категорий
 
 
+class RepeatingWordsPages(StatesGroup):
+    check = State()                    # Флаг для проверки является ли нынешнее состояние листанием страниц слов
+    current_page = 0                   # Индекс текущей страницы для отображения слов
+    pages = []                         # Список страниц слов, содержащих по 15 слов
+    less_name = False                  # Опция: скрыть изучаемые слова
+    less_matching = False              # Опция: скрыть соответствие слова
+
+
 # Состояния для отображения и работы со словами
 class WordsPages(StatesGroup):
     check = State()                    # Флаг для проверки является ли нынешнее состояние листанием страниц слов
@@ -97,7 +105,7 @@ class RegistationNewWords(StatesGroup):
 #                              РАБОТА С СЛОВАРЯМИ
 
 ####################################################################################
-#region DICTIONARIES
+#region DICTIONARIES    
 
 
 #ВЫВОД ПОЛЬЗОВАТЕЛЬСКИХ СЛОВАРЕЙ
@@ -659,6 +667,255 @@ async def confirm_del_category(callback: CallbackQuery):
 ####################################################################################
 #region WORDS
 
+
+#ВЫВОД СЛОВ СЛОВАРЯ
+#region
+
+
+# Инициализация списка слов для вывода на экране
+async def base_for_display_repeating_words(user_id, user_dict_id, state):
+
+    # Получаем слова категории и перемешиваем их
+    items = [
+        (item.id, item.name, item.matching)
+        for item in await rq.get_repeating_words_by_dict(user_id, user_dict_id)
+    ]
+    shuffle(items)
+
+    # Разбиваем слова на страницы по 15 элементов
+    pages = []
+    len_items = len(items)
+    for num in range((len_items + 14) // 15):
+        pages.append(items[num * 15: (num + 1) * 15])
+
+    # Устанавливаем состояние и сохраняем данные о страницах и фильтрах
+    await state.set_state(RepeatingWordsPages.check)
+    await state.update_data(pages=pages)
+    await state.update_data(current_page=0)
+    await state.update_data(less_name=False)
+    await state.update_data(less_matching=False)
+    await state.update_data(less_common_words=False)
+
+
+# Формирование текста для вывода слов
+async def text_repeating_words(user_id, user_dict_id, pages, page, less_name, less_matching):
+
+    name_user_dict = (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
+
+    # Функция для форматирования каждого элемента списка
+    def decorate(item, less_name, less_matching):
+        if less_name == less_matching:
+            name, matching = item
+            return f"{name}  -  <i>{matching}</i>"
+        if less_name:
+            matching = item[0]
+            return f"<i>{matching}</i>"
+        name = item[0]
+        return name
+
+    # Возвращаем текст с отформатированным списком слов категории
+    new_line = '\n'
+    return f"Словарь <b>{name_user_dict}</b>\n\n{(new_line.join(decorate(item[1:], less_name, less_matching) for item in pages[page]) if pages else 'Здесь пока пусто')}"
+
+
+# Обработчик вывода слов 
+@router.callback_query(F.data.startswith('repeating words'))
+async def display_repeating_words(callback: CallbackQuery, state: FSMContext):
+
+    user_id = callback.from_user.id
+
+    user_dict_id = callback.data.split('_')[1]
+
+    # Проверяем текущее состояние и инициализируем, если нужно
+    name_state = await state.get_state()
+    if name_state != RepeatingWordsPages.check:
+        await state.clear()
+        await base_for_display_repeating_words(user_id, user_dict_id, state)
+
+    # Загружаем данные о текущей странице и фильтрах
+    data = await state.get_data()
+    pages = data['pages']
+    current_page = data['current_page']
+    less_name = data['less_name']
+    less_matching = data['less_matching']
+
+    await callback.message.edit_text(
+        await text_repeating_words(
+            user_id=user_id,
+            user_dict_id=user_dict_id,
+            pages=pages,
+            page=current_page,
+            less_name=less_name,
+            less_matching=less_matching
+            ),
+        reply_markup=await kb.inline_repeating_words(
+            user_id=user_id,
+            user_dict_id=user_dict_id,
+            current_page=current_page,
+            cnt_pages=len(pages),
+            is_not_empty=bool(pages[0] if pages else False),
+            less_name = less_name,
+            less_matching = less_matching
+            ),
+        parse_mode='html'
+        )
+
+
+# Переход к следующей странице
+@router.callback_query(F.data.startswith('next repeating page'))
+async def next_repeating_page(callback: CallbackQuery, state: FSMContext):
+
+    data = await state.get_data()
+    current_page = data['current_page']
+
+    #Увеличили индекс страницы на единицу. Функция не будет доступна, если индекс максимален
+    await state.update_data(current_page=current_page + 1)
+
+    await display_repeating_words(callback, state)
+
+
+# Переход к предыдущей странице
+@router.callback_query(F.data.startswith('previous repeating page'))
+async def previous_repeating_page(callback: CallbackQuery, state: FSMContext):
+
+    data = await state.get_data()
+    current_page = data['current_page']
+
+    #Уменьшили индекс страницы на единицу. Функция не будет доступна, если индекс равен 0
+    await state.update_data(current_page=current_page - 1)
+
+    await display_repeating_words(callback, state)
+
+
+# Удалить изучаемеые слова из отображения, оставить только соответствия
+@router.callback_query(F.data.startswith('discard repeating name'))
+async def discard_repeating_name(callback: CallbackQuery, state: FSMContext):
+
+    # Получаем текущие страницы и удаляем слова, оставляя только соответствия
+    data = await state.get_data()
+    pages = data['pages']
+    pages = [[(item[0], item[2]) for item in page] for page in pages]
+
+    # Обновляем состояние данных и вызываем обновление отображения
+    await state.update_data(pages=pages)
+    await state.update_data(less_name=True)
+    await display_repeating_words(callback, state)
+
+
+# Удалить соответствие из отображения, оставить только изучаемые слова
+@router.callback_query(F.data.startswith('discard repeating matching'))
+async def discard_repeating_matching(callback: CallbackQuery, state: FSMContext):
+
+    # Получаем текущие страницы и удаляем соответствия, оставляя только изучаемые слова
+    data = await state.get_data()
+    pages = data['pages']
+    pages = [[(item[0], item[1]) for item in page] for page in pages]
+
+    # Обновляем состояние данных и вызываем обновление отображения
+    await state.update_data(pages=pages)
+    await state.update_data(less_matching=True)
+    await display_repeating_words(callback, state)
+
+
+# Восстановить отображение слов
+@router.callback_query(F.data.startswith('return repeating name'))
+async def return_repeating_name(callback: CallbackQuery, state: FSMContext):
+
+    user_id = callback.from_user.id
+
+    # Получаем исходные слова и добавляем их на страницы
+    data = await state.get_data()
+    pages = data['pages']
+    new_pages = []
+    for page in pages:
+        new_pages.append([
+            (item[0], (await rq.get_data_word_by_id(user_id, item[0], 'name')).first(), item[1])
+            for item in page
+        ])
+
+    # Обновляем состояние данных и вызываем обновление отображения
+    await state.update_data(pages=new_pages)
+    await state.update_data(less_name=False)
+    await display_repeating_words(callback, state)
+
+
+# Восстановить отображение соответствия
+@router.callback_query(F.data.startswith('return repeating matching'))
+async def return_repeating_matching(callback: CallbackQuery, state: FSMContext):
+
+    user_id = callback.from_user.id
+
+    # Получаем исходные соответствия и добавляем их на страницы
+    data = await state.get_data()
+    pages = data['pages']
+    new_pages = []
+    for page in pages:
+        new_pages.append([
+            (item[0], item[1], (await rq.get_data_word_by_id(user_id, item[0], 'matching')).first())
+            for item in page
+        ])
+
+    # Обновляем состояние данных и вызываем обновление отображения
+    await state.update_data(pages=new_pages)
+    await state.update_data(less_matching=False)
+    await display_repeating_words(callback, state)
+
+
+# Перемешать порядок слов в текущей странице слов
+@router.callback_query(F.data.startswith('shuffle repeating'))
+async def shuffle_repeating_words(callback: CallbackQuery, state: FSMContext):
+
+    user_id = callback.from_user.id
+    user_dict_id = callback.data.split('_')[1]
+
+    # Получаем данные состояния и текст текущего сообщения
+    data = await state.get_data()
+    pages = data['pages']
+    current_page = data['current_page']
+    less_name = data['less_name']
+    less_matching = data['less_matching']
+
+    # Перемешиваем строки слов
+
+    lines = callback.message.text.split('\n')
+
+    if len(lines) >= 4:
+        name_category = ' '.join(lines[0].split()[1:])
+        items = pages[current_page]
+        last_item = items.pop(-1)
+        shuffle(items)
+
+        items.insert(0, last_item)
+        new_line = '\n'
+
+        def decorate(item, less_name, less_matching):
+            if less_name == less_matching:
+                name, matching = item
+                return f"{name}  -  <i>{matching}</i>"
+            if less_name:
+                matching = item[0]
+                return f"<i>{matching}</i>"
+            name = item[0]
+            return name
+
+        new_content = f"Словарь <b>{name_category}</b>\n\n{(new_line.join(decorate(item[1:], less_name, less_matching) for item in items))}"
+        await callback.message.edit_text(
+            new_content,
+            reply_markup=await kb.inline_repeating_words(
+                user_id=user_id,
+                user_dict_id=user_dict_id,
+                current_page=current_page,
+                cnt_pages=len(pages),
+                is_not_empty=bool(pages[0] if pages else False),
+                less_name=less_name,
+                less_matching=less_matching,
+            ),
+            parse_mode='html'
+        )
+
+
+
+#endregion
 
 
 #ВЫВОД СЛОВ КАТЕГОРИИ
