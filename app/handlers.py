@@ -1835,9 +1835,14 @@ async def give_word(message: Message, state: FSMContext):
         await state.update_data(last_word=word)
     else:
         # Завершение обучения по всем словам
-        name_user_dict = (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
-        name_category = (await rq.get_name_category_by_id(user_id, categories_id.pop())).first()
-        extra_words = f'категории <b>{name_category}</b>' if len(categories_id) == 0 else f'словаря <b>{name_user_dict}</b>'
+        
+        if len(categories_id) <= 1:
+            name_user_dict = (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
+            extra_words = f'словаря <b>{name_user_dict}</b>'
+        else:
+            name_category = (await rq.get_name_category_by_id(user_id, categories_id.pop())).first()
+            extra_words = f'категории <b>{name_category}</b>'
+        
         await send_message(f'Поздравляю! Ты выучил слова {extra_words}', parse_mode='html')
         await cmd_start(message, state, new_user=False)
 
