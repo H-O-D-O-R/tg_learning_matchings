@@ -1308,12 +1308,14 @@ async def set_matching_word(message: Message, state: FSMContext):
     await state.clear()
 
     category_id = data['category_id']
+    user_dict_id = (await rq.get_id_user_dict_by_id_category(user_id, category_id)).first()
 
     # Проверка на существование слова в категории
-    if (await rq.check_word_in_category(user_id, data['name'], message.text, category_id)).first() is not None:
+    if (await rq.check_word_in_user_dict(user_id, data['name'], message.text, user_dict_id)).first() is not None:
         await state.clear()
         name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
-        await message.answer(f'Слово {data["name"]} - <i>{message.text}</i> уже есть в категории {name_category}', parse_mode='html')
+        name_user_dict = (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
+        await message.answer(f'Слово {data["name"]} - <i>{message.text}</i> уже есть в словаре {name_user_dict}', parse_mode='html')
         await message.answer(
             f'Категория <b>{name_category}</b>',
             reply_markup=await kb.inline_edit_category(category_id),
@@ -1581,6 +1583,7 @@ async def get_matching_word_for_delete(message: Message, state: FSMContext):
 
     name_word = data['name']
     category_id = data['category_id']
+    user_dict_id = (await rq.get_id_user_dict_by_id_category(user_id, category_id)).first()
 
     # Отмена удаления, возврат к категории
     if matching_word == 'ОТМЕНА':
@@ -1593,7 +1596,7 @@ async def get_matching_word_for_delete(message: Message, state: FSMContext):
         return
 
     # Проверка наличия слова в категории
-    if (await rq.check_word_in_category(user_id, name_word, matching_word, category_id)).first() is None:
+    if (await rq.check_word_in_user_dict(user_id, name_word, matching_word, user_dict_id)).first() is None:
         name_category = (await rq.get_name_category_by_id(user_id, category_id)).first()
         await message.answer(f'Слово {name_word} - <i>{message.text}</i> отсутствует в категории {name_category}', parse_mode='html')
         await message.answer(
@@ -1835,7 +1838,7 @@ async def give_word(message: Message, state: FSMContext):
         await state.update_data(last_word=word)
     else:
         # Завершение обучения по всем словам
-        
+
         if len(categories_id) <= 1:
             name_user_dict = (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
             extra_words = f'словаря <b>{name_user_dict}</b>'

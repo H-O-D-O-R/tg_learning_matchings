@@ -310,7 +310,7 @@ async def add_new_word(user_id, category_id, name:str, matching:str):
 async def add_new_words(user_id, category_id, words_data):
     
     # Получение уникальных слов из категории
-    words = { (word.name, word.matching) for word in await get_words_by_category(user_id, category_id) }
+    words = { (word.name.lower(), word.matching.lower()) for word in await get_words_by_category(user_id, category_id) }
     items = []
 
     user_session = await get_user_database(user_id)
@@ -320,7 +320,7 @@ async def add_new_words(user_id, category_id, words_data):
 
     # Проверка и добавление уникальных и корректных слов
     for name, matching in words_data:
-        if (name, matching) not in words:
+        if (name.lower(), matching.lower()) not in words:
             if '  -  ' in name or '  -  ' in matching or name.endswith('  -') or name.endswith('  - ') or matching.startswith('-  ') or matching.startswith(' -  '):
                 incorrect_flag = True
                 continue
@@ -393,16 +393,21 @@ async def set_new_level_difficulty_word(user_id, name, level_difficulty, categor
         await session.commit()
 
 #проверка наличия слова в категории
-async def check_word_in_category(user_id, name_word, matching_word, category_id):
+async def check_word_in_user_dict(user_id, name_word, matching_word, user_dict_id):
     user_session = await get_user_database(user_id)
+
+    categories_id = {
+        category_id for category_id in 
+        await get_categories_id_by_user_dict_id(user_id, user_dict_id)
+    }
 
     async with user_session() as session:
         return await session.scalars(
             select(Item.id)
             .where(
-                (Item.name == name_word) &
-                (Item.matching == matching_word) &
-                (Item.category_id == category_id)
+                (Item.name.lower() == name_word.lower()) &
+                (Item.matching.lower() == matching_word.lower()) &
+                (Item.category_id.in_(categories_id))
             )
         )
 
