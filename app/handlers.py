@@ -82,7 +82,7 @@ class ConfirmDelWord(StatesGroup):
 
 # Состояния для режима обучения
 class LearnWords(StatesGroup):
-    categories_id = []                # Список ID категорий для обучения
+    categories_id = set()             # Список ID категорий для обучения
     user_dict_id = 0                  # ID выбранного пользователем словаря
     words = []                        # Список слов для обучения
     order_difficult_words = []        # Порядок сложных слов для приоритетного обучения
@@ -134,6 +134,8 @@ async def cmd_start(message: Message, state: FSMContext, new_user: bool=True):
 
     # Получение ID пользователя, инициировавшего запрос
     user_id = message.from_user.id
+    if isinstance(message, CallbackQuery):
+        message = message.message
 
     # Проверка, является ли пользователь новым
     if new_user and not (await rq.is_new_user(user_id)).first():
@@ -1138,17 +1140,17 @@ async def discard_common(callback: CallbackQuery, state: FSMContext):
     if less_name == less_matching:
         items = [
             (item.id, item.name, item.matching)
-            for item in await rq.get_difficult_words_by_categories_id(user_id, [category_id])
+            for item in await rq.get_difficult_words_by_category_id(user_id, category_id)
         ]
     elif less_name:
         items = [
             (item.id, item.matching)
-            for item in await rq.get_difficult_words_by_categories_id(user_id, [category_id])
+            for item in await rq.get_difficult_words_by_category_id(user_id, category_id)
         ]
     else:
         items = [
             (item.id, item.name)
-            for item in await rq.get_difficult_words_by_categories_id(user_id, [category_id])
+            for item in await rq.get_difficult_words_by_category_id(user_id, category_id)
         ]
 
     # Перемешиваем слова и разбиваем на страницы
@@ -1672,30 +1674,54 @@ async def confirm_del_word(callback: CallbackQuery, state: FSMContext):
 
 
 
-#ИЗУЧЕНИЕ СЛОВ
+#ИЗУЧЕНИЕ СЛОВ 
 #region
 #-----------------------------------------------------------------------------------
 #                 /start/{название словаря}/учить слова или сложные слова
 #-----------------------------------------------------------------------------------
 
 
-# Обработка списка обычных слов
+# Обработка списка повторяемых слов 
+@router.callback_query(F.data.startswith('learn repeating'))
+async def list_of_repeating_words(callback: CallbackQuery, state: FSMContext):
+
+    user_id = callback.from_user.id
+    await callback.message.delete()
+
+    # Получение идентификаторов категорий
+    user_dict_id = callback.data.split('_')[1]
+    categories_id = {category_id for category_id in await(rq.get_categories_id_by_user_dict_id(user_id, user_dict_id))}
+
+    # Формирование списка слов и перемешивание
+    words = []
+    for word in await rq.get_repeating_words_by_dict(user_id, user_dict_id):
+        words.append({'id': word.id, 'name': word.name, 'matching': word.matching, 'level_difficulty': 0})
+    shuffle(words)
+
+    # Очистка и обновление состояния с добавлением данных
+    if await state.get_state() is not None:
+        await state.clear()
+    await state.set_state(LearnWords.name)
+    await state.update_data(categories_id=categories_id, user_dict_id=user_dict_id, words=words, order_difficult_words=[])
+
+    await give_word(callback, state)
+
+
+# Обработка списка обычных слов 
 @router.callback_query(F.data.startswith('learn all'))
 async def list_of_common_words(callback: CallbackQuery, state: FSMContext):
 
     user_id = callback.from_user.id
 
     # Получение идентификаторов категорий
-    if callback.data.split('_')[1] == 'dict':
-        user_dict_id = callback.data.split('_')[2]
-        categories_id = [category_id for category_id in await rq.get_categories_id_by_user_dict_id(user_id, user_dict_id)]
-    else:
-        categories_id = [callback.data.split('_')[2]]
-        user_dict_id = (await rq.get_id_user_dict_by_id_category(user_id, categories_id[0])).first()
+    categories_id = {callback.data.split('_')[2],}
+    category_id = categories_id.pop()
+    categories_id.add(category_id)
+    user_dict_id = (await rq.get_id_user_dict_by_id_category(user_id, category_id)).first()
 
     # Формирование списка слов и перемешивание
     words = []
-    for word in await rq.get_common_words_by_categories_id(user_id, categories_id):
+    for word in await rq.get_common_words_by_category_id(user_id, category_id):
         words.append({'id': word.id, 'name': word.name, 'matching': word.matching, 'level_difficulty': 0})
     shuffle(words)
 
@@ -1717,12 +1743,10 @@ async def list_of_difficult_words(callback: CallbackQuery, state: FSMContext, is
 
     # Обработка данных, если вызов через callback
     if not is_call:
-        if callback.data.split('_')[1] == 'dict':
-            user_dict_id = callback.data.split('_')[2]
-            categories_id = [category_id for category_id in await rq.get_categories_id_by_user_dict_id(user_id, user_dict_id)]
-        else:
-            categories_id = [callback.data.split('_')[2]]
-            user_dict_id = (await rq.get_id_user_dict_by_id_category(user_id, categories_id[0])).first()
+        categories_id = {callback.data.split('_')[2],}
+        category_id = categories_id.pop()
+        categories_id.add(category_id)
+        user_dict_id = (await rq.get_id_user_dict_by_id_category(user_id, category_id)).first()
 
         if await state.get_state() is not None:
             await state.clear()
@@ -1731,10 +1755,12 @@ async def list_of_difficult_words(callback: CallbackQuery, state: FSMContext, is
     else:
         data = await state.get_data()
         categories_id = data['categories_id']
+        category_id = categories_id.pop()
+        categories_id.add(category_id)
 
     # Формирование списка сложных слов по уровням сложности
     difficult_words = {1: [], 2: [], 3: []}
-    for word in await rq.get_difficult_words_by_categories_id(user_id, categories_id):
+    for word in await rq.get_difficult_words_by_category_id(user_id, category_id):
         difficult_words[word.level_difficulty].append((word.id, word.name, word.matching))
 
     # Перемешивание и создание очередности сложных слов
@@ -1748,11 +1774,11 @@ async def list_of_difficult_words(callback: CallbackQuery, state: FSMContext, is
     await asyncio.gather(*tasks)
 
     await state.update_data(order_difficult_words=order_difficult_words)
-    await give_word(callback.message, state)
+    await give_word(callback, state)
 
 
 # Изменение уровня сложности слова
-async def set_level_difficulty(user_id, word, order_difficult_words, categories_id: list, correct_answer=None):
+async def set_level_difficulty(user_id, word, order_difficult_words, categories_id: set, correct_answer=None):
 
     # Изменение уровня сложности в зависимости от правильного ответа
     if correct_answer is None:
@@ -1778,6 +1804,7 @@ async def set_level_difficulty(user_id, word, order_difficult_words, categories_
 async def give_word(message: Message, state: FSMContext):
 
     user_id = message.from_user.id
+
     data = await state.get_data()
 
     # Извлечение слова для показа, если список пуст, переход к следующему слову
@@ -1798,15 +1825,20 @@ async def give_word(message: Message, state: FSMContext):
     elif words:
         word = words.pop(0)
         
-
+    if isinstance(message, Message):
+        send_message = message.answer
+    else:
+        send_message = message.message.answer
+    
     if word:
-        await message.answer(word['matching'], reply_markup=await kb.reply_learn_word())
+        await send_message(word['matching'], reply_markup=await kb.reply_learn_word())
         await state.update_data(last_word=word)
     else:
         # Завершение обучения по всем словам
         name_user_dict = (await rq.get_name_user_dict_by_id(user_id, user_dict_id)).first()
-        extra_words = f'категории <b>{name_user_dict}</b>' if len(categories_id) == 1 else f'словаря <b>{name_user_dict}</b>'
-        await message.answer(f'Поздравляю! Ты выучил слова {extra_words}', parse_mode='html')
+        name_category = (await rq.get_name_category_by_id(user_id, categories_id.pop())).first()
+        extra_words = f'категории <b>{name_category}</b>' if len(categories_id) == 0 else f'словаря <b>{name_user_dict}</b>'
+        await send_message(f'Поздравляю! Ты выучил слова {extra_words}', parse_mode='html')
         await cmd_start(message, state, new_user=False)
 
 
@@ -1876,6 +1908,7 @@ async def get_name(message: Message, state: FSMContext):
 
 #-----------------------------------------------------------------------------------
 #endregion
+
 
 
 #endregion

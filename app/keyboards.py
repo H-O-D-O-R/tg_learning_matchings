@@ -103,7 +103,7 @@ async def inline_categories(user_dict_id, current_page, num_current_page, cnt_pa
     # Добавляем кнопки для повтора слов, редактирования категории и возврата к словарям
     buttons.extend([
         [InlineKeyboardButton(text='Повторяемые слова', callback_data=f'repeating words_{user_dict_id}')],
-        [InlineKeyboardButton(text='Повторять слова', callback_data=f'repeat all_dict_{user_dict_id}')],
+        [InlineKeyboardButton(text='Повторять слова', callback_data=f'learn repeating_{user_dict_id}')],
         [InlineKeyboardButton(text='Редактировать словарь', callback_data=f'edit dict_{user_dict_id}')],
         [InlineKeyboardButton(text='Назад', callback_data='main')]
     ])
@@ -233,7 +233,7 @@ async def inline_repeating_words(user_id, user_dict_id, current_page, cnt_pages,
     # Добавляем кнопки для изучения слов и возврата к редактированию категории
     if is_not_empty:
         buttons.append([
-            InlineKeyboardButton(text='Повторять слова', callback_data=f'repeat all_dict_{user_dict_id}')
+            InlineKeyboardButton(text='Повторять слова', callback_data=f'learn repeating_{user_dict_id}')
         ])
     buttons.append([
         InlineKeyboardButton(text='Назад', callback_data=f'dict_{user_dict_id}')

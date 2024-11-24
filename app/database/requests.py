@@ -212,15 +212,15 @@ async def get_repeating_words_by_dict(user_id, user_dict_id):
             category_id for category_id
             in await get_categories_id_by_user_dict_id(user_id, user_dict_id)
         }
-        
+        today = date.today()
         return await session.scalars(
             select(Item)
             .where(
                 (Item.category_id.in_(categories_id)) &
-                   (Item.is_repeating == 1 )
+                (Item.is_repeating == 1 ) &
+                (Item.date_for_repeat <= today)
                    )
                                     )
-
 
 #Получние слов категории без соответствий
 async def get_words_by_category_without_matching(user_id, category_id):
@@ -233,69 +233,30 @@ async def get_words_by_category_without_matching(user_id, category_id):
             )
 
 #Получние обычных слов категорий
-async def get_common_words_by_categories_id(user_id, categories_id):
+async def get_common_words_by_category_id(user_id, category_id):
     user_session = await get_user_database(user_id)
 
     async with user_session() as session:
         return await session.scalars(
             select(Item)
             .where(
-                (Item.category_id.in_(categories_id)) &
+                (Item.category_id == category_id) &
                                     (Item.level_difficulty == 0)
                                     )
         )
 
 #Получние сложных слов категорий
-async def get_difficult_words_by_categories_id(user_id, categories_id):
+async def get_difficult_words_by_category_id(user_id, category_id):
     user_session = await get_user_database(user_id)
 
     async with user_session() as session:
         return await session.scalars(
             select(Item)
             .where(
-                (Item.category_id.in_(categories_id)) &
+                (Item.category_id == category_id) &
                                     (Item.level_difficulty != 0)
                                     )
         )
-
-#Получние обычных слов словаря
-async def get_common_words_by_dict(user_id, user_dict_id):
-    user_session = await get_user_database(user_id)
-
-    async with user_session() as session:
-
-        categories_id = [
-            category_id for category_id
-            in await get_categories_id_by_user_dict_id(user_id, user_dict_id)
-                         ]
-        
-        return await session.scalars(
-            select(Item)
-            .where(
-                (
-                    Item.category_id.in_(categories_id)) &
-                                    (Item.level_difficulty == 0)
-                                    )
-        )
-
-#Получние сложных слов словаря
-async def get_difficult_words_by_dict(user_id, user_dict_id):
-    user_session = await get_user_database(user_id)
-
-    async with user_session() as session:
-
-        categories_id = [
-            category_id for category_id
-            in await get_categories_id_by_user_dict_id(user_id, user_dict_id)
-                         ]
-        
-        return await session.scalars(
-            select(Item)
-            .where(
-                (Item.category_id.in_(categories_id)) &
-                   (Item.level_difficulty != 0)
-                   )
-                                    )
 
 #Получение данных слова по его id
 async def get_data_word_by_id(user_id, word_id, key):
