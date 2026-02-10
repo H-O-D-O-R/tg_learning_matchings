@@ -1,5 +1,3 @@
-
-https://github.com/user-attachments/assets/0881c7ed-7201-4ac1-b27f-92369f710930
 # tg_learning_matchings
 Telegram-бот для запоминания соответствий: слова, столицы, вопросы и ответы
 
@@ -33,6 +31,8 @@ Telegram-бот для изучения ассоциаций и соответс
 ![Перемешать слова](https://github.com/user-attachments/assets/979a9efd-630c-42a1-a5c0-e19ada7d0743)
 
 Если словарей, категорий или слов становится много, то становятся доступны кнопки навигации "вперёд" и "назад":
+https://github.com/user-attachments/assets/e258392e-c93f-42d1-a189-3393607f2822
+
 
 
 
